@@ -93,16 +93,20 @@ header="Projects [$filter]   enter:switch  ^r:repair  ^x:kill  ^n:shell  ^e:edit
 # We can't reliably capture fzf's stdout through `$(tmux display-popup -E ...)`,
 # so the popup writes its result to $result_file and we read it after the
 # popup closes.
+#
+# --height=100% is mandatory: many users set FZF_DEFAULT_OPTS='--height 40%'
+# globally, which would shrink fzf to a sliver of the popup. Forcing 100%
+# ensures fzf fills the popup before the preview-window split is applied.
 rm -f "$result_file"
 
 tmux display-popup -w 90% -h 80% -E "
   cat '$list_file' | \
   fzf \
     --ansi \
+    --height=100% \
     --header='$header' \
     --delimiter=\$'\t' \
     --with-nth=4 \
-    --nth=1.. \
     --pointer='▶' \
     --marker='●' \
     --preview='$CURRENT_DIR/preview.sh {1}' \
