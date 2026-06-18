@@ -13,19 +13,23 @@ SCRIPTS_DIR="$CURRENT_DIR/scripts"
 # not collide with any escape-sequence prefix and works reliably across
 # Ghostty / iTerm / Alacritty / kitty / Linux terminals.
 #
-# Cycle: prefix-based by default. We previously tried bare M-[/M-] (CSI/OSC
-# prefixes — eaten by terminals) and M-{/M-} (Alt+Shift+symbol combos that
-# Ghostty/macOS handle inconsistently). Prefix bindings sidestep the entire
-# problem: the leader breaks any escape-sequence parsing, and tmux always
-# sees the keys as discrete events. Users who want no-prefix cycling can
-# override via @tpm-prev-key / @tpm-next-key plus @tpm-cycle-no-prefix.
+# Cycle: prefix-based by default — bound to prefix+{ / prefix+}. We
+# previously tried:
+#   - bare M-[/M-] (CSI/OSC prefixes; terminals intercept them)
+#   - M-{/M-} (Alt+Shift+symbol; Ghostty/macOS handle inconsistently)
+#   - prefix+[/prefix+] (works, but shadows tmux defaults copy-mode and
+#     paste-buffer; bad for portability with stock tmux)
+# prefix+{ / prefix+} shadow swap-pane -U/-D, but those have built-in
+# alternatives (prefix+<>, plus most users no-prefix Alt+HJKL), so the
+# collision is benign. Override via @tpm-prev-key / @tpm-next-key plus
+# @tpm-cycle-no-prefix for no-prefix global cycling.
 default_projects_file="$HOME/.config/projects/projects.yaml"
 default_tool="opencode"
 default_editor="nvim"
 default_picker_key="M-p"
 default_picker_no_prefix="on"
-default_prev_key="["
-default_next_key="]"
+default_prev_key="{"
+default_next_key="}"
 default_cycle_no_prefix="off"
 default_carousel_key="M-g"
 default_carousel_no_prefix="on"

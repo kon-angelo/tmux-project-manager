@@ -7,7 +7,7 @@ Manage project sessions in tmux. One session per project, with dedicated windows
 - **Project picker** (`M-p`): fzf popup with preview pane showing session state, git info, and action keybinds
 - **Session lifecycle**: launch, repair, and kill project sessions
 - **Current project detection**: highlights your active project via longest-path match
-- **Session cycling** (`prefix [` / `prefix ]`): navigate between project sessions (skips ad-hoc sessions)
+- **Session cycling** (`prefix {` / `prefix }`): navigate between project sessions (skips ad-hoc sessions)
 - **Window carousel** (`M-g`): cycle within a project session: claude → editor → last shell
 - **Filter toggle**: switch between all projects and running-only view
 - **Status bar**: exposes `#{@project-name}` for your tmux status line
@@ -67,15 +67,16 @@ set -g @tpm-default-editor "nvim"
 
 # Keybinds (defaults shown)
 #   - Picker:    M-p (no-prefix global)
-#   - Cycle:     prefix [ / prefix ]  (prefix-based to avoid escape-sequence
-#                collisions; bare M-[ / M-] are CSI/OSC prefixes and
-#                terminals intercept them before tmux sees them)
+#   - Cycle:     prefix { / prefix }  (prefix-based; shadows swap-pane,
+#                which has redundant bindings on prefix+<> and no-prefix
+#                M-HJKL. prefix+[ / prefix+] avoided to keep tmux defaults
+#                copy-mode and paste-buffer reachable.)
 #   - Carousel:  M-g (no-prefix global) — cycles claude → editor → shell
 #                inside the current project session
 set -g @tpm-picker-key "M-p"
 set -g @tpm-picker-no-prefix "on"
-set -g @tpm-prev-key "["
-set -g @tpm-next-key "]"
+set -g @tpm-prev-key "{"
+set -g @tpm-next-key "}"
 set -g @tpm-cycle-no-prefix "off"
 set -g @tpm-carousel-key "M-g"
 set -g @tpm-carousel-no-prefix "on"
@@ -88,8 +89,8 @@ set -g @tpm-carousel-no-prefix "on"
 | Key | Action |
 |-----|--------|
 | `M-p` | Open project picker (no prefix) |
-| `prefix [` | Switch to previous project session |
-| `prefix ]` | Switch to next project session |
+| `prefix {` | Switch to previous project session |
+| `prefix }` | Switch to next project session |
 | `M-g` | Carousel: cycle through claude → editor → last shell within the current project session |
 
 To bind cycling to a no-prefix combo (e.g. `M-,` / `M-.`), set:
@@ -125,7 +126,7 @@ Each project session has a fixed structure:
 
 1. **Launch**: Creates a tmux session named after the project's first alias, spawns tool + editor windows, tags the session as managed.
 2. **Repair**: Checks that windows 0 and 1 exist with correct names. Recreates missing ones without touching user-created windows (2+).
-3. **Cycling**: `prefix [` / `prefix ]` only cycles through sessions tagged as project-managed, ignoring ad-hoc sessions.
+3. **Cycling**: `prefix {` / `prefix }` only cycles through sessions tagged as project-managed, ignoring ad-hoc sessions.
 4. **Carousel**: `M-g` cycles through `claude → editor → last shell` within the current project session. If no shell window exists, one is created at the project's path.
 5. **Detection**: The picker highlights your current project by matching `$PWD` against project paths (longest prefix wins).
 6. **Persistence**: Compatible with [tmux-resurrect](https://github.com/tmux-plugins/tmux-resurrect). The plugin registers a `@resurrect-hook-post-restore-all` hook that re-applies the project-managed tags to restored sessions whose names match a project alias. If you already have a hook set, ours is appended (not overwritten).
