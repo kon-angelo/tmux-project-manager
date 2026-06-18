@@ -7,7 +7,7 @@ Manage project sessions in tmux. One session per project, with dedicated windows
 - **Project picker** (`M-p`): fzf popup with preview pane showing session state, git info, and action keybinds
 - **Session lifecycle**: launch, repair, and kill project sessions
 - **Current project detection**: highlights your active project via longest-path match
-- **Session cycling** (`M-{` / `M-}`): navigate between project sessions (skips ad-hoc sessions)
+- **Session cycling** (`prefix [` / `prefix ]`): navigate between project sessions (skips ad-hoc sessions)
 - **Filter toggle**: switch between all projects and running-only view
 - **Status bar**: exposes `#{@project-name}` for your tmux status line
 
@@ -65,22 +65,34 @@ set -g @tpm-default-tool "opencode"
 set -g @tpm-default-editor "nvim"
 
 # Keybinds (defaults shown)
+#   - Picker:  M-p (no-prefix global)
+#   - Cycle:   prefix [ / prefix ]  (prefix-based to avoid escape-sequence
+#              collisions; bare M-[ / M-] are CSI/OSC prefixes and
+#              terminals intercept them before tmux sees them)
 set -g @tpm-picker-key "M-p"
-set -g @tpm-prev-key "M-{"
-set -g @tpm-next-key "M-}"
-# Note: M-[ / M-] are intentionally avoided — they are the CSI/OSC escape
-# prefixes and most terminals intercept them before tmux sees them.
+set -g @tpm-picker-no-prefix "on"
+set -g @tpm-prev-key "["
+set -g @tpm-next-key "]"
+set -g @tpm-cycle-no-prefix "off"
 ```
 
 ## Keybinds
 
-### Global (no prefix required)
+### Default
 
 | Key | Action |
 |-----|--------|
-| `M-p` | Open project picker |
-| `M-{` | Switch to previous project session |
-| `M-}` | Switch to next project session |
+| `M-p` | Open project picker (no prefix) |
+| `prefix [` | Switch to previous project session |
+| `prefix ]` | Switch to next project session |
+
+To bind cycling to a no-prefix combo (e.g. `M-,` / `M-.`), set:
+
+```tmux
+set -g @tpm-cycle-no-prefix "on"
+set -g @tpm-prev-key "M-,"
+set -g @tpm-next-key "M-."
+```
 
 ### Inside the Picker
 
@@ -107,7 +119,7 @@ Each project session has a fixed structure:
 
 1. **Launch**: Creates a tmux session named after the project's first alias, spawns tool + editor windows, tags the session as managed.
 2. **Repair**: Checks that windows 0 and 1 exist with correct names. Recreates missing ones without touching user-created windows (2+).
-3. **Cycling**: `M-{` / `M-}` only cycles through sessions tagged as project-managed, ignoring ad-hoc sessions.
+3. **Cycling**: `prefix [` / `prefix ]` only cycles through sessions tagged as project-managed, ignoring ad-hoc sessions.
 4. **Detection**: The picker highlights your current project by matching `$PWD` against project paths (longest prefix wins).
 
 ## Status Bar
