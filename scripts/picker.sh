@@ -19,6 +19,7 @@ fi
 # --- State (user-scoped) ---
 state_file="${TPM_STATE_PREFIX}-picker-state"
 list_file="${TPM_STATE_PREFIX}-picker-list"
+result_file="${TPM_STATE_PREFIX}-picker-result"
 
 filter="all"
 [[ -f "$state_file" ]] && filter=$(<"$state_file")
@@ -32,15 +33,20 @@ if [[ -n "$current_project_key" ]]; then
 fi
 
 # --- Build the list ---
-# Format on each line: "<marker> <session_name> │ <description> │ <status>"
-# Marker: '*' = current project, '+' = running, ' ' = idle.
-# Lines are pre-sorted: current project first (if any), then running, then rest.
+# Each row is TAB-separated: <sort_key>\t<session_name>\t<display>
+# fzf is told to show only the third (display) field but extract data from the
+# second (session_name) field via {2}. This avoids awk-based field guessing
+# that broke for idle rows where the marker is a single space.
+#
+# The display column embeds both the alias (session name) and the full project
+# key, so fzf's incremental match works against either form — typing
+# "gardener-azure" or "ggaz" both narrow to the same row.
 build_lines() {
   local f="${1:-all}"
   while IFS=$'\t' read -r session_name key path desc status; do
     [[ "$f" == "running" && "$status" != "running" ]] && continue
 
-    local marker=" " sort_key="2"
+    local marker="·" sort_key="2"
     if [[ "$session_name" == "$current_session_name" ]]; then
       marker="*"
       sort_key="0"
@@ -48,9 +54,17 @@ build_lines() {
       marker="+"
       sort_key="1"
     fi
-    # Prepend a sort prefix that we strip after sort.
-    printf '%s\t%s %-12s │ %-40s │ %s\n' \
-      "$sort_key" "$marker" "$session_name" "${desc:-(no description)}" "$status"
+
+    # Hide the key from view if it equals the alias (e.g. dotfiles → df).
+    local key_display=""
+    if [[ "$key" != "$session_name" ]]; then
+      key_display="($key)"
+    fi
+
+    local display
+    printf -v display '%s %-12s %-44s %s' \
+      "$marker" "$session_name" "$key_display" "${desc:-(no description)}"
+    printf '%s\t%s\t%s\n' "$sort_key" "$session_name" "$display"
   done < <(list_projects)
 }
 
@@ -61,37 +75,50 @@ if [[ ! -s "$list_file" ]]; then
   exit 0
 fi
 
-header="Projects [$filter] │ enter:switch  ^r:repair  ^x:kill  ^n:shell  ^e:editor  ^f:filter"
+header="Projects [$filter]   enter:switch  ^r:repair  ^x:kill  ^n:shell  ^e:editor  ^f:filter"
 
-# --- Run fzf in a tmux popup ---
-# fzf field index {2} is the second whitespace-separated token, which is the
-# session name (after the marker character at position 1).
-selection=$(tmux display-popup -w 80% -h 70% -E "
+# --- Run fzf inside a tmux popup and capture the result via a file ---
+# We can't reliably capture fzf's stdout through `$(tmux display-popup -E ...)`,
+# so the popup writes its result to $result_file and we read it after the
+# popup closes.
+rm -f "$result_file"
+
+tmux display-popup -w 90% -h 80% -E "
   cat '$list_file' | \
   fzf \
     --ansi \
     --header='$header' \
+    --delimiter=\$'\t' \
+    --with-nth=2 \
     --pointer='▶' \
     --marker='●' \
-    --preview='$CURRENT_DIR/preview.sh {2}' \
-    --preview-window='right:50%:wrap' \
+    --preview='$CURRENT_DIR/preview.sh {1}' \
+    --preview-window='right:40%:wrap' \
     --expect='ctrl-r,ctrl-x,ctrl-n,ctrl-e,ctrl-f' \
     --no-sort \
-    --reverse
-") || true
+    --reverse \
+    > '$result_file'
+" 2>/dev/null || true
 
-[[ -z "$selection" ]] && exit 0
+[[ ! -s "$result_file" ]] && exit 0
+selection=$(<"$result_file")
+rm -f "$result_file"
 
+# --- Parse fzf output ---
+# Line 1: the action key (empty for plain Enter)
+# Line 2: the selected row (TAB-separated: session_name<TAB>display)
 action_key=$(printf '%s\n' "$selection" | sed -n '1p')
 selected_line=$(printf '%s\n' "$selection" | sed -n '2p')
 [[ -z "$selected_line" ]] && exit 0
 
-# Second whitespace token is the session name.
-selected_session=$(printf '%s' "$selected_line" | awk '{print $2}')
+selected_session=$(printf '%s' "$selected_line" | cut -f1)
 [[ -z "$selected_session" ]] && exit 0
 
 selected_key=$(resolve_project_key "$selected_session")
-[[ -z "$selected_key" ]] && exit 0
+if [[ -z "$selected_key" ]]; then
+  tmux display-message "tpm: cannot resolve project for '$selected_session'"
+  exit 0
+fi
 
 # --- Dispatch ---
 case "$action_key" in
