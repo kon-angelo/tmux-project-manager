@@ -22,6 +22,8 @@ CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=utils.sh
 source "$CURRENT_DIR/utils.sh"
 
+load_projects_cache
+
 session_name=$(tmux display-message -p '#{session_name}' 2>/dev/null || echo "")
 [[ -z "$session_name" ]] && exit 0
 

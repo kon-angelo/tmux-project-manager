@@ -16,6 +16,8 @@ CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=utils.sh
 source "$CURRENT_DIR/utils.sh"
 
+load_projects_cache
+
 project_key="${1:-}"
 
 if [[ -z "$project_key" ]]; then

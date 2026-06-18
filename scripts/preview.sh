@@ -11,6 +11,8 @@ CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=utils.sh
 source "$CURRENT_DIR/utils.sh"
 
+load_projects_cache
+
 session_name="${1:-}"
 [[ -z "$session_name" ]] && exit 0
 

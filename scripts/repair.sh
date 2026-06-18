@@ -15,6 +15,8 @@ CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=utils.sh
 source "$CURRENT_DIR/utils.sh"
 
+load_projects_cache
+
 session_name="${1:-$(tmux display-message -p '#{session_name}' 2>/dev/null)}"
 
 if [[ -z "$session_name" ]]; then

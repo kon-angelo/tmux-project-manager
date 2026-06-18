@@ -4,6 +4,12 @@
 #
 # utils.sh — Shared utilities for tmux-project-manager
 # YAML parsing, session tagging, current-project detection.
+#
+# Performance: yq has a ~15ms per-invocation startup cost. Calling it once
+# per field per project (path, description, aliases, etc.) added up to
+# ~1.5s for the picker. We now load the entire projects file via a SINGLE
+# yq invocation that emits TSV, then populate bash associative arrays.
+# Subsequent getter calls are hash lookups — sub-millisecond.
 
 # --- Environment ---
 TPM_PROJECTS_FILE="${TPM_PROJECTS_FILE:-$(tmux show-environment -g TPM_PROJECTS_FILE 2>/dev/null | cut -d= -f2-)}"
@@ -16,17 +22,110 @@ TPM_DEFAULT_TOOL="${TPM_DEFAULT_TOOL:-opencode}"
 TPM_DEFAULT_EDITOR="${TPM_DEFAULT_EDITOR:-nvim}"
 
 # --- Constants ---
-TPM_TAG="@tpm-managed"                     # Per-session option marking a managed session
-TPM_PROJECT_KEY_OPT="@tpm-project-key"     # Per-session option storing the project key
-TPM_WINDOW_TOOL="claude"                   # Window name for AI tool
-TPM_WINDOW_EDITOR="editor"                 # Window name for editor
+TPM_TAG="@tpm-managed"
+TPM_PROJECT_KEY_OPT="@tpm-project-key"
+TPM_WINDOW_TOOL="claude"
+TPM_WINDOW_EDITOR="editor"
 TPM_TMP_DIR="${TMPDIR:-/tmp}"
 TPM_STATE_PREFIX="${TPM_TMP_DIR%/}/tpm-${USER:-default}"
 
+# --- Cache (associative arrays, populated by load_projects_cache) ---
+declare -gA _TPM_PATH        # key -> filesystem path
+declare -gA _TPM_SESSION     # key -> session name (first alias or key)
+declare -gA _TPM_DESC        # key -> description
+declare -gA _TPM_TOOL        # key -> tool command (default-resolved)
+declare -gA _TPM_EDITOR      # key -> editor command (default-resolved)
+declare -gA _TPM_HAS_EDITOR  # key -> "1" or "0"
+declare -gA _TPM_ALIASES     # key -> comma-separated alias list
+declare -gA _TPM_PERSONAS    # key -> comma-separated persona list
+declare -gA _TPM_ALIAS_TO_KEY # alias-or-key -> canonical key
+declare -ga _TPM_KEYS        # ordered list of keys (file order)
+
+# Cached session-set (built lazily).
+declare -ga _TPM_SESSION_LIST
+_TPM_SESSION_LIST_LOADED=0
+
+_TPM_CACHE_LOADED=0
+
+# Load all project data with a single yq call. Idempotent; a second call is
+# a no-op unless _TPM_CACHE_LOADED is reset.
+load_projects_cache() {
+  (( _TPM_CACHE_LOADED == 1 )) && return 0
+  [[ ! -f "$TPM_PROJECTS_FILE" ]] && return 1
+
+  local key alias_first path desc tool editor nvim aliases personas
+  while IFS=$'\x1f' read -r key alias_first path desc tool editor nvim aliases personas; do
+    [[ -z "$key" ]] && continue
+    _TPM_KEYS+=("$key")
+    _TPM_PATH["$key"]="${path%/}"
+    _TPM_SESSION["$key"]="${alias_first:-$key}"
+    _TPM_DESC["$key"]="$desc"
+    _TPM_TOOL["$key"]="${tool:-$TPM_DEFAULT_TOOL}"
+    _TPM_EDITOR["$key"]="${editor:-$TPM_DEFAULT_EDITOR}"
+    if [[ "$nvim" == "false" ]]; then
+      _TPM_HAS_EDITOR["$key"]="0"
+    else
+      _TPM_HAS_EDITOR["$key"]="1"
+    fi
+    _TPM_ALIASES["$key"]="$aliases"
+    _TPM_PERSONAS["$key"]="$personas"
+
+    # Build the alias→key reverse index. The canonical key itself is
+    # registered too (so resolve_project_key can find it via the same map).
+    _TPM_ALIAS_TO_KEY["$key"]="$key"
+    if [[ -n "$aliases" ]]; then
+      local IFS_BACKUP="$IFS"
+      IFS=','
+      local a
+      for a in $aliases; do
+        [[ -n "$a" ]] && _TPM_ALIAS_TO_KEY["$a"]="$key"
+      done
+      IFS="$IFS_BACKUP"
+    fi
+  done < <(
+    # Pipe yq's tab-separated output through `tr` to swap tabs for ASCII Unit
+    # Separator (\x1f). bash's `read` with IFS set to a whitespace character
+    # collapses consecutive separators — losing empty fields. \x1f is
+    # non-whitespace, so empty fields between two delimiters are preserved.
+    yq -r '
+      to_entries | .[] | select(.key | test("^[^_]")) |
+      [
+        .key,
+        (.value.aliases[0] // .key),
+        (.value.path // ""),
+        (.value.description // ""),
+        (.value.tool // ""),
+        (.value.editor // ""),
+        (.value.nvim // true | tostring),
+        ((.value.aliases // []) | join(",")),
+        ((.value.personas // []) | join(","))
+      ] | @tsv
+    ' "$TPM_PROJECTS_FILE" < /dev/null 2>/dev/null \
+      | tr '\t' $'\x1f'
+  )
+
+  _TPM_CACHE_LOADED=1
+  return 0
+}
+
+# Force-reload (callable by tests / clients that mutate the file).
+reload_projects_cache() {
+  _TPM_CACHE_LOADED=0
+  _TPM_KEYS=()
+  _TPM_PATH=()
+  _TPM_SESSION=()
+  _TPM_DESC=()
+  _TPM_TOOL=()
+  _TPM_EDITOR=()
+  _TPM_HAS_EDITOR=()
+  _TPM_ALIASES=()
+  _TPM_PERSONAS=()
+  _TPM_ALIAS_TO_KEY=()
+  load_projects_cache
+}
+
 # --- Validation ---
 
-# Check that the projects file exists and is parseable.
-# On error: writes to stderr and returns non-zero.
 validate_projects_file() {
   if [[ ! -f "$TPM_PROJECTS_FILE" ]]; then
     echo "tpm: projects file not found: $TPM_PROJECTS_FILE" >&2
@@ -39,108 +138,105 @@ validate_projects_file() {
   return 0
 }
 
-# --- YAML Parsing ---
-# Note: all yq calls redirect stdin from /dev/null to avoid consuming pipe input
-# when these helpers are used inside while-read loops (subshells inherit FD 0).
+# --- Cached session set ---
 
-# List all project keys (excluding _-prefixed special entries).
-list_project_keys() {
-  yq -r 'keys | .[] | select(test("^[^_]"))' "$TPM_PROJECTS_FILE" < /dev/null 2>/dev/null
+# Build the session-name set with a single tmux list-sessions call.
+load_session_cache() {
+  (( _TPM_SESSION_LIST_LOADED == 1 )) && return 0
+  mapfile -t _TPM_SESSION_LIST < <(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
+  _TPM_SESSION_LIST_LOADED=1
 }
 
-# Get a single field for a project key. Usage: get_field <key> <field>
+session_running() {
+  local target="$1" s
+  load_session_cache
+  for s in "${_TPM_SESSION_LIST[@]}"; do
+    [[ "$s" == "$target" ]] && return 0
+  done
+  return 1
+}
+
+# Reset session cache (callable after launching/killing sessions).
+invalidate_session_cache() {
+  _TPM_SESSION_LIST_LOADED=0
+  _TPM_SESSION_LIST=()
+}
+
+# --- Getters (all hash lookups) ---
+
+list_project_keys() {
+  load_projects_cache
+  printf '%s\n' "${_TPM_KEYS[@]}"
+}
+
+get_path()             { load_projects_cache; printf '%s\n' "${_TPM_PATH[$1]:-}"; }
+get_session_name()     { load_projects_cache; printf '%s\n' "${_TPM_SESSION[$1]:-$1}"; }
+get_description()      { load_projects_cache; printf '%s\n' "${_TPM_DESC[$1]:-}"; }
+get_tool()             { load_projects_cache; printf '%s\n' "${_TPM_TOOL[$1]:-$TPM_DEFAULT_TOOL}"; }
+get_editor()           { load_projects_cache; printf '%s\n' "${_TPM_EDITOR[$1]:-$TPM_DEFAULT_EDITOR}"; }
+
+has_editor() {
+  load_projects_cache
+  [[ "${_TPM_HAS_EDITOR[$1]:-1}" == "1" ]]
+}
+
+# Get a generic field. Kept for backward compatibility but rarely needed now
+# that we cache the common fields.
 get_field() {
   local key="$1" field="$2"
-  yq -r ".[\"$key\"].$field // \"\"" "$TPM_PROJECTS_FILE" < /dev/null 2>/dev/null
+  case "$field" in
+    path)        get_path "$key" ;;
+    description) get_description "$key" ;;
+    tool)        get_tool "$key" ;;
+    editor)      get_editor "$key" ;;
+    nvim)        load_projects_cache; [[ "${_TPM_HAS_EDITOR[$key]:-1}" == "1" ]] && echo "true" || echo "false" ;;
+    *) yq -r ".[\"$key\"].$field // \"\"" "$TPM_PROJECTS_FILE" < /dev/null 2>/dev/null ;;
+  esac
 }
 
-# Get the first alias (used as the tmux session name). Falls back to the key itself.
-get_session_name() {
+# Searchable bag for the picker (description + path + personas + aliases).
+get_searchable_text() {
+  load_projects_cache
   local key="$1"
-  local first_alias
-  first_alias=$(yq -r ".[\"$key\"].aliases[0] // \"\"" "$TPM_PROJECTS_FILE" < /dev/null 2>/dev/null)
-  if [[ -n "$first_alias" ]]; then
-    echo "$first_alias"
-  else
-    echo "$key"
-  fi
+  local desc="${_TPM_DESC[$key]:-}"
+  local path="${_TPM_PATH[$key]:-}"
+  local personas="${_TPM_PERSONAS[$key]//,/ }"
+  local aliases="${_TPM_ALIASES[$key]//,/ }"
+  printf '%s %s %s %s' "$desc" "$path" "$personas" "$aliases" | tr '\t\n' '  '
 }
 
-get_path()        { get_field "$1" "path"; }
-get_description() { get_field "$1" "description"; }
+# --- Project list (for picker) ---
 
-get_tool() {
-  local key="$1" tool
-  tool=$(get_field "$key" "tool")
-  echo "${tool:-$TPM_DEFAULT_TOOL}"
-}
-
-get_editor() {
-  local key="$1" editor
-  editor=$(get_field "$key" "editor")
-  echo "${editor:-$TPM_DEFAULT_EDITOR}"
-}
-
-# Whether a project should have an editor window. Default: true.
-has_editor() {
-  local key="$1" nvim_val
-  nvim_val=$(get_field "$key" "nvim")
-  [[ "$nvim_val" != "false" ]]
-}
-
-# --- Project List (for picker) ---
-
-# Output: TAB-separated lines: session_name, key, path, description, status (running|stopped)
+# TAB-separated lines: session_name, key, path, description, status (running|stopped)
 list_projects() {
-  local key session_name path desc running
-  while IFS= read -r key; do
-    session_name=$(get_session_name "$key")
-    path=$(get_path "$key")
-    desc=$(get_description "$key")
-    if tmux has-session -t "=$session_name" 2>/dev/null; then
+  load_projects_cache
+  load_session_cache
+  local key session_name running
+  for key in "${_TPM_KEYS[@]}"; do
+    session_name="${_TPM_SESSION[$key]:-$key}"
+    if session_running "$session_name"; then
       running="running"
     else
       running="stopped"
     fi
-    printf '%s\t%s\t%s\t%s\t%s\n' "$session_name" "$key" "$path" "$desc" "$running"
-  done < <(list_project_keys)
+    printf '%s\t%s\t%s\t%s\t%s\n' \
+      "$session_name" "$key" "${_TPM_PATH[$key]:-}" "${_TPM_DESC[$key]:-}" "$running"
+  done
 }
 
-# Get all searchable metadata for a project as a single space-separated string.
-# Used by the picker to make description/path/personas/aliases fzf-searchable
-# without showing them in the visible row. TABs and newlines are stripped so
-# the output stays on a single field.
-get_searchable_text() {
-  local key="$1"
-  local desc path personas aliases_all
-  desc=$(get_description "$key")
-  path=$(get_path "$key")
-  personas=$(yq -r ".[\"$key\"].personas // [] | .[]" "$TPM_PROJECTS_FILE" \
-    < /dev/null 2>/dev/null | tr '\n' ' ')
-  aliases_all=$(yq -r ".[\"$key\"].aliases // [] | .[]" "$TPM_PROJECTS_FILE" \
-    < /dev/null 2>/dev/null | tr '\n' ' ')
-  # Collapse tabs and newlines into spaces.
-  printf '%s %s %s %s' "$desc" "$path" "$personas" "$aliases_all" | tr '\t\n' '  '
-}
+# --- Current-project detection ---
 
-# --- Current-Project Detection ---
-
-# Longest-prefix match of a path against all project paths.
-# A path matches a project iff cwd == project_path OR cwd starts with "project_path/".
-# Returns the project key (not the session name).
 detect_current_project() {
   local cwd="${1:-$(tmux display-message -p '#{pane_current_path}' 2>/dev/null)}"
   [[ -z "$cwd" ]] && return 0
 
+  load_projects_cache
   local best_key="" best_len=0
   local key project_path plen
 
-  while IFS= read -r key; do
-    project_path=$(get_path "$key")
+  for key in "${_TPM_KEYS[@]}"; do
+    project_path="${_TPM_PATH[$key]:-}"
     [[ -z "$project_path" ]] && continue
-    # Strip a trailing slash from project_path for consistent comparison.
-    project_path="${project_path%/}"
-
     if [[ "$cwd" == "$project_path" || "$cwd" == "$project_path"/* ]]; then
       plen=${#project_path}
       if (( plen > best_len )); then
@@ -148,12 +244,11 @@ detect_current_project() {
         best_key="$key"
       fi
     fi
-  done < <(list_project_keys)
+  done
 
-  echo "$best_key"
+  printf '%s\n' "$best_key"
 }
 
-# Convenience: detect current project and return its session name.
 detect_current_session_name() {
   local key
   key=$(detect_current_project "$@")
@@ -162,11 +257,8 @@ detect_current_session_name() {
   fi
 }
 
-# --- Session Tagging ---
+# --- Session tagging ---
 
-# Mark a session as managed by this plugin. Also stores the project key.
-# Note: set-option's session target syntax requires a trailing ':' for exact-match
-# (`=name:`); a bare `=name` is parsed as a literal session name and fails.
 tag_session() {
   local session_name="$1" project_key="${2:-}"
   tmux set-option -t "=$session_name:" "$TPM_TAG" "1" 2>/dev/null
@@ -175,23 +267,16 @@ tag_session() {
   fi
 }
 
-# True if a session is project-managed.
-# Primary check: the @tpm-managed option is set.
-# Fallback: the session name resolves to a known project alias/key — useful after
-# tmux-resurrect restores sessions (which doesn't preserve user options reliably).
 is_managed_session() {
-  local session_name="$1" val key
+  local session_name="$1" val key expected_session
   val=$(tmux show-option -t "=$session_name:" -qv "$TPM_TAG" 2>/dev/null)
   if [[ "$val" == "1" ]]; then
     return 0
   fi
-  # Fallback: name matches a known project
   key=$(resolve_project_key "$session_name")
   if [[ -n "$key" ]]; then
-    local expected_session
     expected_session=$(get_session_name "$key")
     if [[ "$expected_session" == "$session_name" ]]; then
-      # Re-tag opportunistically so future calls are O(1)
       tag_session "$session_name" "$key"
       return 0
     fi
@@ -199,74 +284,51 @@ is_managed_session() {
   return 1
 }
 
-# Get the project key associated with a session, with fallback resolution.
 get_session_project_key() {
   local session_name="$1" key
   key=$(tmux show-option -t "=$session_name:" -qv "$TPM_PROJECT_KEY_OPT" 2>/dev/null)
   if [[ -n "$key" ]]; then
-    echo "$key"
+    printf '%s\n' "$key"
     return 0
   fi
-  # Fallback: derive from session name
   key=$(resolve_project_key "$session_name")
   if [[ -n "$key" ]]; then
-    # Cache it
     tmux set-option -t "=$session_name:" "$TPM_PROJECT_KEY_OPT" "$key" 2>/dev/null
-    echo "$key"
+    printf '%s\n' "$key"
     return 0
   fi
   return 1
 }
 
-# List all managed session names.
 list_managed_sessions() {
-  local session
-  while IFS= read -r session; do
-    [[ -z "$session" ]] && continue
-    if is_managed_session "$session"; then
-      echo "$session"
+  load_session_cache
+  local s
+  for s in "${_TPM_SESSION_LIST[@]}"; do
+    [[ -z "$s" ]] && continue
+    if is_managed_session "$s"; then
+      printf '%s\n' "$s"
     fi
-  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+  done
 }
 
-# --- Key-to-Session Resolution ---
+# --- Key-to-project resolution ---
 
 # Resolve an alias or direct key to the canonical project key. Empty if no match.
 resolve_project_key() {
+  load_projects_cache
   local query="$1"
   [[ -z "$query" ]] && return 0
-
-  # Exact match against a top-level key (skip _-prefixed).
-  if [[ "$query" != _* ]] \
-     && yq -e ".[\"$query\"]" "$TPM_PROJECTS_FILE" < /dev/null &>/dev/null; then
-    echo "$query"
-    return 0
-  fi
-
-  # Otherwise scan aliases.
-  local key aliases alias
-  while IFS= read -r key; do
-    aliases=$(yq -r ".[\"$key\"].aliases // [] | .[]" "$TPM_PROJECTS_FILE" < /dev/null 2>/dev/null)
-    while IFS= read -r alias; do
-      [[ -z "$alias" ]] && continue
-      if [[ "$alias" == "$query" ]]; then
-        echo "$key"
-        return 0
-      fi
-    done <<< "$aliases"
-  done < <(list_project_keys)
+  printf '%s\n' "${_TPM_ALIAS_TO_KEY[$query]:-}"
 }
 
-# --- Tmux Helpers ---
+# --- Tmux helpers ---
 
-# Window base index (0 or 1 depending on user config).
 tmux_base_index() {
   local idx
   idx=$(tmux show-option -gv base-index 2>/dev/null)
   echo "${idx:-0}"
 }
 
-# Check if a window with a given name exists in a session.
 window_exists() {
   local session_name="$1" win_name="$2"
   tmux list-windows -t "=$session_name" -F '#{window_name}' 2>/dev/null \

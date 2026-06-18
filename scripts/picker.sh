@@ -16,6 +16,13 @@ if ! validate_projects_file; then
   exit 1
 fi
 
+# Eager-load the project + session caches in the parent shell so that the
+# many `$(getter ...)` calls inside the build_lines loop don't each spawn a
+# fresh yq process (subshells inherit our state but cannot mutate it back,
+# so a lazy loader would re-run on every subshell).
+load_projects_cache
+load_session_cache
+
 # --- State (user-scoped) ---
 state_file="${TPM_STATE_PREFIX}-picker-state"
 list_file="${TPM_STATE_PREFIX}-picker-list"

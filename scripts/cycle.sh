@@ -13,6 +13,11 @@ CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=utils.sh
 source "$CURRENT_DIR/utils.sh"
 
+# Eager-load caches so the parent shell holds the data — subshells inherit
+# without re-running yq / list-sessions.
+load_projects_cache
+load_session_cache
+
 direction="${1:-next}"
 
 mapfile -t sessions < <(list_managed_sessions | sort)
