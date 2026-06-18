@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Konstantinos Angelopoulos
+#
 # cycle.sh — Cycle through project sessions (M-[ / M-]).
 # Usage: cycle.sh <prev|next>
 # Only cycles through sessions tagged @tpm-managed=1 (or whose names match

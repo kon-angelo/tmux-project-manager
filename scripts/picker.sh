@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Konstantinos Angelopoulos
+#
 # picker.sh — fzf-based project picker with preview and action keybinds.
 # Invoked by the configured key (default M-p, no prefix).
 

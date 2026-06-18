@@ -123,4 +123,4 @@ set -g status-right "#{@project-name} | %H:%M"
 
 ## License
 
-MIT
+[MIT](LICENSE) © 2026 Konstantinos Angelopoulos

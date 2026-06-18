@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Konstantinos Angelopoulos
+#
 # utils.sh — Shared utilities for tmux-project-manager
 # YAML parsing, session tagging, current-project detection.
 

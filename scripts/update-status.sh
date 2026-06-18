@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Konstantinos Angelopoulos
+#
 # update-status.sh — Update the @project-name option to reflect the current session.
 # Bound to the client-session-changed hook.
 

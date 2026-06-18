@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Konstantinos Angelopoulos
+#
 # repair.sh — Verify and recreate missing managed windows in a project session.
 # Usage: repair.sh [session-name]
 #

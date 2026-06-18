@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Konstantinos Angelopoulos
+#
 # tmux-project-manager — TPM entry point
 # Manages project sessions with a unified picker, repair, and cycling.
 

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Konstantinos Angelopoulos
+#
 # launch.sh — Create a project session with managed windows.
 # Usage: launch.sh <project-key>
 #

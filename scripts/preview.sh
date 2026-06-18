@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Konstantinos Angelopoulos
+#
 # preview.sh — Render the right-pane preview for the project picker.
 # Usage: preview.sh <session_name>
 
