@@ -55,4 +55,10 @@ else
   target_idx=$(( (current_idx + 1) % count ))
 fi
 
-tmux switch-client -t "=${sessions[$target_idx]}"
+target_session="${sessions[$target_idx]}"
+
+# Record LRU for the target project.
+target_key=$(resolve_project_key "$target_session")
+[[ -n "$target_key" ]] && record_lru "$target_key"
+
+tmux switch-client -t "=$target_session"

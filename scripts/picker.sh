@@ -25,11 +25,15 @@ load_session_cache
 
 # --- State (user-scoped) ---
 state_file="${TPM_STATE_PREFIX}-picker-state"
+sort_file="${TPM_STATE_PREFIX}-picker-sort"
 list_file="${TPM_STATE_PREFIX}-picker-list"
 result_file="${TPM_STATE_PREFIX}-picker-result"
 
 filter="all"
 [[ -f "$state_file" ]] && filter=$(<"$state_file")
+
+sort_mode="alpha"
+[[ -f "$sort_file" ]] && sort_mode=$(<"$sort_file")
 
 # --- Detect current project for highlighting/sorting ---
 current_pane_path=$(tmux display-message -p '#{pane_current_path}' 2>/dev/null || true)
@@ -54,20 +58,34 @@ fi
 #   so the user can search by description/persona/path, but the content is
 #   visually de-emphasised and pushed to the right.
 build_lines() {
-  local f="${1:-all}"
+  local f="${1:-all}" sm="${2:-alpha}"
   local DIM=$'\033[2;38;5;240m'   # SGR 2 (dim) + 256-color dark gray
   local RESET=$'\033[0m'
 
   while IFS=$'\t' read -r session_name key path desc status; do
     [[ "$f" == "running" && "$status" != "running" ]] && continue
 
-    local marker="·" sort_key="2"
+    local marker="·" sort_group="2"
     if [[ "$session_name" == "$current_session_name" ]]; then
       marker="*"
-      sort_key="0"
+      sort_group="0"
     elif [[ "$status" == "running" ]]; then
       marker="+"
-      sort_key="1"
+      sort_group="1"
+    fi
+
+    # Secondary sort key depends on mode:
+    #   alpha — session name (lexicographic ascending)
+    #   lru   — inverse timestamp (numeric descending, padded for sort)
+    local sort_secondary
+    if [[ "$sm" == "lru" ]]; then
+      local ts
+      ts=$(get_lru_timestamp "$key")
+      # Invert: subtract from a large number so higher timestamps sort first.
+      # 10-digit zero-padded for stable numeric sort.
+      printf -v sort_secondary '%010d' $(( 9999999999 - ts ))
+    else
+      sort_secondary="$session_name"
     fi
 
     local key_display=""
@@ -82,19 +100,19 @@ build_lines() {
     printf -v visible '%s %-12s %-44s' "$marker" "$session_name" "$key_display"
     display="${visible}${DIM}${searchable}${RESET}"
 
-    # sort_key prefix is stripped after sort.
-    printf '%s\t%s\t%s\t%s\t%s\n' "$sort_key" "$session_name" "$key" "$searchable" "$display"
+    # Fields: sort_group, sort_secondary, session_name, key, searchable, display
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$sort_group" "$sort_secondary" "$session_name" "$key" "$searchable" "$display"
   done < <(list_projects)
 }
 
-build_lines "$filter" | sort -k1,1 -s | cut -f2- > "$list_file"
+build_lines "$filter" "$sort_mode" | sort -t$'\t' -k1,1 -k2,2 -s | cut -f3- > "$list_file"
 
 if [[ ! -s "$list_file" ]]; then
   tmux display-message "tpm: no projects found (filter: $filter) — check $TPM_PROJECTS_FILE"
   exit 0
 fi
 
-header="Projects [$filter]   enter:switch  alt-1..9:quick-pick  ^r:repair  ^x:kill  ^n:shell  ^e:editor  ^f:filter"
+header="Projects [$filter|$sort_mode]  enter:switch  alt-1..9:quick  ^s:sort  ^r:repair  ^x:kill  ^n:shell  ^e:editor  ^f:filter"
 
 # --- Run fzf inside a tmux popup and capture the result via a file ---
 # We can't reliably capture fzf's stdout through `$(tmux display-popup -E ...)`,
@@ -122,7 +140,7 @@ tmux display-popup -w 90% -h 80% -E "
     --marker='●' \
     --preview='$CURRENT_DIR/preview.sh {1}' \
     --preview-window='down:50%:wrap' \
-    --expect='ctrl-r,ctrl-x,ctrl-n,ctrl-e,ctrl-f' \
+    --expect='ctrl-r,ctrl-x,ctrl-n,ctrl-e,ctrl-f,ctrl-s' \
     --bind='alt-1:pos(1)+accept' \
     --bind='alt-2:pos(2)+accept' \
     --bind='alt-3:pos(3)+accept' \
@@ -159,6 +177,15 @@ fi
 
 # --- Dispatch ---
 case "$action_key" in
+  ctrl-s)
+    if [[ "$sort_mode" == "alpha" ]]; then
+      printf 'lru' > "$sort_file"
+    else
+      printf 'alpha' > "$sort_file"
+    fi
+    exec "$CURRENT_DIR/picker.sh"
+    ;;
+
   ctrl-f)
     if [[ "$filter" == "all" ]]; then
       printf 'running' > "$state_file"
@@ -213,7 +240,8 @@ case "$action_key" in
     ;;
 
   *)
-    # Default (Enter): switch or launch.
+    # Default (Enter): switch or launch. Record LRU timestamp.
+    record_lru "$selected_key"
     if tmux has-session -t "=$selected_session" 2>/dev/null; then
       tmux switch-client -t "=$selected_session"
     else

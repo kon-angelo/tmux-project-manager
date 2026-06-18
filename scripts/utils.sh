@@ -334,3 +334,36 @@ window_exists() {
   tmux list-windows -t "=$session_name" -F '#{window_name}' 2>/dev/null \
     | grep -qx -- "$win_name"
 }
+
+# --- LRU tracking ---
+# Stores epoch timestamps per project key in a simple key=timestamp file.
+# Used by the picker to sort by most-recently-used when LRU mode is active.
+
+TPM_LRU_FILE="${TPM_STATE_PREFIX}-lru"
+
+# Record a switch/launch timestamp for a project key.
+record_lru() {
+  local key="$1"
+  [[ -z "$key" ]] && return 0
+  local ts
+  ts=$(date +%s)
+  # Atomic update: remove old entry, append new one.
+  if [[ -f "$TPM_LRU_FILE" ]]; then
+    grep -v "^${key}=" "$TPM_LRU_FILE" > "${TPM_LRU_FILE}.tmp" 2>/dev/null || true
+    mv "${TPM_LRU_FILE}.tmp" "$TPM_LRU_FILE"
+  fi
+  printf '%s=%s\n' "$key" "$ts" >> "$TPM_LRU_FILE"
+}
+
+# Get the LRU timestamp for a project key (0 if never accessed).
+get_lru_timestamp() {
+  local key="$1"
+  [[ ! -f "$TPM_LRU_FILE" ]] && printf '0\n' && return 0
+  local line
+  line=$(grep "^${key}=" "$TPM_LRU_FILE" 2>/dev/null | tail -1)
+  if [[ -n "$line" ]]; then
+    printf '%s\n' "${line#*=}"
+  else
+    printf '0\n'
+  fi
+}

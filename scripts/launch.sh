@@ -57,6 +57,7 @@ if tmux has-session -t "=$session_name" 2>/dev/null; then
     tmux display-message "tpm: session '$session_name' exists and is not managed; refusing"
     exit 1
   fi
+  record_lru "$project_key"
   tmux switch-client -t "=$session_name"
   exit 0
 fi
@@ -73,6 +74,9 @@ fi
 
 # Tag the session and store its project key.
 tag_session "$session_name" "$project_key"
+
+# Record LRU access for sort tracking.
+record_lru "$project_key"
 
 # Focus the tool window by name (works regardless of base-index).
 tmux select-window -t "=$session_name:$TPM_WINDOW_TOOL"
