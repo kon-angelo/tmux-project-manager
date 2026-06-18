@@ -27,6 +27,8 @@ default_picker_no_prefix="on"
 default_prev_key="["
 default_next_key="]"
 default_cycle_no_prefix="off"
+default_carousel_key="M-g"
+default_carousel_no_prefix="on"
 
 # --- Read tmux options (with defaults) ---
 get_opt() {
@@ -42,6 +44,8 @@ picker_no_prefix=$(get_opt "@tpm-picker-no-prefix" "$default_picker_no_prefix")
 prev_key=$(get_opt "@tpm-prev-key" "$default_prev_key")
 next_key=$(get_opt "@tpm-next-key" "$default_next_key")
 cycle_no_prefix=$(get_opt "@tpm-cycle-no-prefix" "$default_cycle_no_prefix")
+carousel_key=$(get_opt "@tpm-carousel-key" "$default_carousel_key")
+carousel_no_prefix=$(get_opt "@tpm-carousel-no-prefix" "$default_carousel_no_prefix")
 
 # --- Export config for scripts ---
 tmux set-environment -g TPM_PROJECTS_FILE "$projects_file"
@@ -66,7 +70,37 @@ else
   tmux bind-key "$next_key" run-shell -b "$SCRIPTS_DIR/cycle.sh next"
 fi
 
+# Carousel: cycles claude → editor → last-shell within the current project
+# session. Defaults to no-prefix M-g.
+if [[ "$carousel_no_prefix" == "on" ]]; then
+  tmux bind-key -n "$carousel_key" run-shell -b "$SCRIPTS_DIR/carousel.sh"
+else
+  tmux bind-key "$carousel_key" run-shell -b "$SCRIPTS_DIR/carousel.sh"
+fi
+
 # --- Status bar format variable ---
 # #{@project-name} resolves to the current project session name if managed.
 tmux set-option -g @project-name ""
 tmux set-hook -g client-session-changed "run-shell -b '$SCRIPTS_DIR/update-status.sh'"
+
+# --- tmux-resurrect compatibility ---
+# tmux-resurrect does not preserve session-scoped user options across
+# save/restore, so the @tpm-managed and @tpm-project-key tags are lost when
+# sessions are restored. Bind retag.sh to the post-restore-all hook so the
+# tags are reapplied based on session names matching project aliases.
+#
+# We do NOT overwrite an existing @resurrect-hook-post-restore-all value if
+# one is already set — instead we append our script to be executed after.
+existing_hook=$(tmux show-option -gqv "@resurrect-hook-post-restore-all")
+tpm_retag_cmd="$SCRIPTS_DIR/retag.sh"
+case "$existing_hook" in
+  *"$tpm_retag_cmd"*)
+    : # already wired up, no-op
+    ;;
+  "")
+    tmux set-option -g "@resurrect-hook-post-restore-all" "$tpm_retag_cmd"
+    ;;
+  *)
+    tmux set-option -g "@resurrect-hook-post-restore-all" "$existing_hook ; $tpm_retag_cmd"
+    ;;
+esac
