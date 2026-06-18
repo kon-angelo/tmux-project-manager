@@ -33,23 +33,22 @@ if [[ -n "$current_project_key" ]]; then
 fi
 
 # --- Build the list ---
-# Each row has FOUR tab-separated fields:
+# Each row has FIVE tab-separated fields (after sort prefix is stripped):
 #   1. session_name   — used for extraction after fzf returns
-#   2. project_key    — searchable
-#   3. searchable     — hidden-via-ANSI bag (description, path, personas, all aliases)
-#   4. display        — visible content (marker + alias + key)
+#   2. project_key    — passed through to fzf for searching
+#   3. searchable     — extra metadata bag (description, path, personas, aliases)
+#   4. display        — the visible content (marker + alias + key) shown to the user
 #
-# fzf does not natively support "search hidden fields, display only one" —
-# `--with-nth=N` is destructive and `--nth` operates on the result. The trick
-# we use: keep all fields in the visible row but wrap the noisy ones in
-# `\033[8m` (SGR conceal) so terminals render them invisibly while fzf still
-# matches against them when --ansi is on.
-#
-# Visible to the user:   * df           (dotfiles)
-# Searchable by fzf  :   df dotfiles Personal dotfiles ... rfranzke ... + display
+# Layout strategy:
+#   The visible content is emitted FIRST so the alias/key are always at the
+#   left of the row regardless of whether the terminal honours SGR 8.
+#   The searchable bag is appended AFTER the visible block, dimmed (SGR 2 +
+#   bright-black foreground). fzf with --ansi strips the codes for matching,
+#   so the user can search by description/persona/path, but the content is
+#   visually de-emphasised and pushed to the right.
 build_lines() {
   local f="${1:-all}"
-  local CONCEAL=$'\033[8m'
+  local DIM=$'\033[2;38;5;240m'   # SGR 2 (dim) + 256-color dark gray
   local RESET=$'\033[0m'
 
   while IFS=$'\t' read -r session_name key path desc status; do
@@ -69,12 +68,12 @@ build_lines() {
       key_display="($key)"
     fi
 
-    local searchable display visible
+    local searchable visible display
     searchable=$(get_searchable_text "$key")
-    printf -v visible '%s %-12s %s' "$marker" "$session_name" "$key_display"
-    # Display string: concealed searchable text + visible content.
-    # The conceal block must come first so the visible part is not affected.
-    display="${CONCEAL}${searchable}${RESET}${visible}"
+    # Pad visible block to a fixed column width so the dimmed metadata
+    # always starts at the same horizontal position.
+    printf -v visible '%s %-12s %-44s' "$marker" "$session_name" "$key_display"
+    display="${visible}${DIM}${searchable}${RESET}"
 
     # sort_key prefix is stripped after sort.
     printf '%s\t%s\t%s\t%s\t%s\n' "$sort_key" "$session_name" "$key" "$searchable" "$display"
