@@ -106,6 +106,7 @@ set -g @tpm-next-key "M-."
 | Key | Action |
 |-----|--------|
 | `enter` | Switch to project (launch if not running) |
+| `alt-1` … `alt-9` | Quick-pick the Nth visible row (same effect as Enter on it) |
 | `ctrl-r` | Repair: recreate missing managed windows |
 | `ctrl-x` | Kill project session |
 | `ctrl-n` | Add a new shell window |

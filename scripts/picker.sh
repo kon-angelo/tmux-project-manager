@@ -94,7 +94,7 @@ if [[ ! -s "$list_file" ]]; then
   exit 0
 fi
 
-header="Projects [$filter]   enter:switch  ^r:repair  ^x:kill  ^n:shell  ^e:editor  ^f:filter"
+header="Projects [$filter]   enter:switch  alt-1..9:quick-pick  ^r:repair  ^x:kill  ^n:shell  ^e:editor  ^f:filter"
 
 # --- Run fzf inside a tmux popup and capture the result via a file ---
 # We can't reliably capture fzf's stdout through `$(tmux display-popup -E ...)`,
@@ -104,6 +104,10 @@ header="Projects [$filter]   enter:switch  ^r:repair  ^x:kill  ^n:shell  ^e:edit
 # --height=100% is mandatory: many users set FZF_DEFAULT_OPTS='--height 40%'
 # globally, which would shrink fzf to a sliver of the popup. Forcing 100%
 # ensures fzf fills the popup before the preview-window split is applied.
+#
+# alt-1..9 quick-pick: each binding moves the cursor to the Nth visible item
+# (after current filter/sort) and immediately accepts. Same effect as Enter
+# on that row, so the wrapper script's default action handles it.
 rm -f "$result_file"
 
 tmux display-popup -w 90% -h 80% -E "
@@ -119,6 +123,15 @@ tmux display-popup -w 90% -h 80% -E "
     --preview='$CURRENT_DIR/preview.sh {1}' \
     --preview-window='down:50%:wrap' \
     --expect='ctrl-r,ctrl-x,ctrl-n,ctrl-e,ctrl-f' \
+    --bind='alt-1:pos(1)+accept' \
+    --bind='alt-2:pos(2)+accept' \
+    --bind='alt-3:pos(3)+accept' \
+    --bind='alt-4:pos(4)+accept' \
+    --bind='alt-5:pos(5)+accept' \
+    --bind='alt-6:pos(6)+accept' \
+    --bind='alt-7:pos(7)+accept' \
+    --bind='alt-8:pos(8)+accept' \
+    --bind='alt-9:pos(9)+accept' \
     --no-sort \
     --reverse \
     > '$result_file'
