@@ -7,7 +7,7 @@ Manage project sessions in tmux. One session per project, with dedicated windows
 - **Project picker** (`M-p`): fzf popup with preview pane showing session state, git info, and action keybinds
 - **Session lifecycle**: launch, repair, and kill project sessions
 - **Current project detection**: highlights your active project via longest-path match
-- **Session cycling** (`M-[` / `M-]`): navigate between project sessions (skips ad-hoc sessions)
+- **Session cycling** (`M-{` / `M-}`): navigate between project sessions (skips ad-hoc sessions)
 - **Filter toggle**: switch between all projects and running-only view
 - **Status bar**: exposes `#{@project-name}` for your tmux status line
 
@@ -66,8 +66,10 @@ set -g @tpm-default-editor "nvim"
 
 # Keybinds (defaults shown)
 set -g @tpm-picker-key "M-p"
-set -g @tpm-prev-key "M-["
-set -g @tpm-next-key "M-]"
+set -g @tpm-prev-key "M-{"
+set -g @tpm-next-key "M-}"
+# Note: M-[ / M-] are intentionally avoided — they are the CSI/OSC escape
+# prefixes and most terminals intercept them before tmux sees them.
 ```
 
 ## Keybinds
@@ -77,8 +79,8 @@ set -g @tpm-next-key "M-]"
 | Key | Action |
 |-----|--------|
 | `M-p` | Open project picker |
-| `M-[` | Switch to previous project session |
-| `M-]` | Switch to next project session |
+| `M-{` | Switch to previous project session |
+| `M-}` | Switch to next project session |
 
 ### Inside the Picker
 
@@ -105,7 +107,7 @@ Each project session has a fixed structure:
 
 1. **Launch**: Creates a tmux session named after the project's first alias, spawns tool + editor windows, tags the session as managed.
 2. **Repair**: Checks that windows 0 and 1 exist with correct names. Recreates missing ones without touching user-created windows (2+).
-3. **Cycling**: `M-[` / `M-]` only cycles through sessions tagged as project-managed, ignoring ad-hoc sessions.
+3. **Cycling**: `M-{` / `M-}` only cycles through sessions tagged as project-managed, ignoring ad-hoc sessions.
 4. **Detection**: The picker highlights your current project by matching `$PWD` against project paths (longest prefix wins).
 
 ## Status Bar

@@ -33,16 +33,25 @@ if [[ -n "$current_project_key" ]]; then
 fi
 
 # --- Build the list ---
-# Each row is TAB-separated: <sort_key>\t<session_name>\t<display>
-# fzf is told to show only the third (display) field but extract data from the
-# second (session_name) field via {2}. This avoids awk-based field guessing
-# that broke for idle rows where the marker is a single space.
+# Each row has FOUR tab-separated fields:
+#   1. session_name   — used for extraction after fzf returns
+#   2. project_key    — searchable
+#   3. searchable     — hidden-via-ANSI bag (description, path, personas, all aliases)
+#   4. display        — visible content (marker + alias + key)
 #
-# The display column embeds both the alias (session name) and the full project
-# key, so fzf's incremental match works against either form — typing
-# "gardener-azure" or "ggaz" both narrow to the same row.
+# fzf does not natively support "search hidden fields, display only one" —
+# `--with-nth=N` is destructive and `--nth` operates on the result. The trick
+# we use: keep all fields in the visible row but wrap the noisy ones in
+# `\033[8m` (SGR conceal) so terminals render them invisibly while fzf still
+# matches against them when --ansi is on.
+#
+# Visible to the user:   * df           (dotfiles)
+# Searchable by fzf  :   df dotfiles Personal dotfiles ... rfranzke ... + display
 build_lines() {
   local f="${1:-all}"
+  local CONCEAL=$'\033[8m'
+  local RESET=$'\033[0m'
+
   while IFS=$'\t' read -r session_name key path desc status; do
     [[ "$f" == "running" && "$status" != "running" ]] && continue
 
@@ -55,16 +64,20 @@ build_lines() {
       sort_key="1"
     fi
 
-    # Hide the key from view if it equals the alias (e.g. dotfiles → df).
     local key_display=""
     if [[ "$key" != "$session_name" ]]; then
       key_display="($key)"
     fi
 
-    local display
-    printf -v display '%s %-12s %-44s %s' \
-      "$marker" "$session_name" "$key_display" "${desc:-(no description)}"
-    printf '%s\t%s\t%s\n' "$sort_key" "$session_name" "$display"
+    local searchable display visible
+    searchable=$(get_searchable_text "$key")
+    printf -v visible '%s %-12s %s' "$marker" "$session_name" "$key_display"
+    # Display string: concealed searchable text + visible content.
+    # The conceal block must come first so the visible part is not affected.
+    display="${CONCEAL}${searchable}${RESET}${visible}"
+
+    # sort_key prefix is stripped after sort.
+    printf '%s\t%s\t%s\t%s\t%s\n' "$sort_key" "$session_name" "$key" "$searchable" "$display"
   done < <(list_projects)
 }
 
@@ -89,11 +102,12 @@ tmux display-popup -w 90% -h 80% -E "
     --ansi \
     --header='$header' \
     --delimiter=\$'\t' \
-    --with-nth=2 \
+    --with-nth=4 \
+    --nth=1.. \
     --pointer='▶' \
     --marker='●' \
     --preview='$CURRENT_DIR/preview.sh {1}' \
-    --preview-window='right:40%:wrap' \
+    --preview-window='down:50%:wrap' \
     --expect='ctrl-r,ctrl-x,ctrl-n,ctrl-e,ctrl-f' \
     --no-sort \
     --reverse \

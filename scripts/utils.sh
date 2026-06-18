@@ -106,6 +106,23 @@ list_projects() {
   done < <(list_project_keys)
 }
 
+# Get all searchable metadata for a project as a single space-separated string.
+# Used by the picker to make description/path/personas/aliases fzf-searchable
+# without showing them in the visible row. TABs and newlines are stripped so
+# the output stays on a single field.
+get_searchable_text() {
+  local key="$1"
+  local desc path personas aliases_all
+  desc=$(get_description "$key")
+  path=$(get_path "$key")
+  personas=$(yq -r ".[\"$key\"].personas // [] | .[]" "$TPM_PROJECTS_FILE" \
+    < /dev/null 2>/dev/null | tr '\n' ' ')
+  aliases_all=$(yq -r ".[\"$key\"].aliases // [] | .[]" "$TPM_PROJECTS_FILE" \
+    < /dev/null 2>/dev/null | tr '\n' ' ')
+  # Collapse tabs and newlines into spaces.
+  printf '%s %s %s %s' "$desc" "$path" "$personas" "$aliases_all" | tr '\t\n' '  '
+}
+
 # --- Current-Project Detection ---
 
 # Longest-prefix match of a path against all project paths.

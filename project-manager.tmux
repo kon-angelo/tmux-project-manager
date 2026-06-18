@@ -9,12 +9,15 @@ CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_DIR="$CURRENT_DIR/scripts"
 
 # --- Option defaults ---
+# M-{ / M-} (Shift+[ / Shift+]) avoid the CSI/OSC escape prefix conflict that
+# breaks bare M-[ and M-] in most terminals (Alt+[ generates ESC[ which is the
+# CSI control-sequence prefix; the terminal eats it before tmux sees it).
 default_projects_file="$HOME/.config/projects/projects.yaml"
 default_tool="opencode"
 default_editor="nvim"
 default_picker_key="M-p"
-default_prev_key="M-["
-default_next_key="M-]"
+default_prev_key="M-{"
+default_next_key="M-}"
 
 # --- Read tmux options (with defaults) ---
 get_opt() {
