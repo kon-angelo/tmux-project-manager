@@ -1,25 +1,37 @@
 #!/usr/bin/env bash
 # repair.sh — Verify and recreate missing managed windows in a project session.
 # Usage: repair.sh [session-name]
-# If no session name given, uses the current session.
+#
+# Adds windows named "$TPM_WINDOW_TOOL" and "$TPM_WINDOW_EDITOR" if missing.
+# Never touches user-created windows. Numeric ordering of windows is not
+# enforced — windows are addressed by name throughout the plugin.
 
 set -euo pipefail
 
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=utils.sh
 source "$CURRENT_DIR/utils.sh"
 
-session_name="${1:-$(tmux display-message -p '#{session_name}')}"
+session_name="${1:-$(tmux display-message -p '#{session_name}' 2>/dev/null)}"
 
-# Verify this is a managed session
-if ! is_managed_session "$session_name"; then
-  tmux display-message "Session '$session_name' is not a project-managed session."
+if [[ -z "$session_name" ]]; then
+  tmux display-message "tpm: no session given and no current session"
   exit 1
 fi
 
-# Get project key from session option
-project_key=$(tmux show-option -t "=$session_name" -qv "@tpm-project-key" 2>/dev/null)
+if ! tmux has-session -t "=$session_name" 2>/dev/null; then
+  tmux display-message "tpm: session '$session_name' does not exist"
+  exit 1
+fi
+
+if ! is_managed_session "$session_name"; then
+  tmux display-message "tpm: session '$session_name' is not project-managed"
+  exit 1
+fi
+
+project_key=$(get_session_project_key "$session_name")
 if [[ -z "$project_key" ]]; then
-  tmux display-message "No project key found for session '$session_name'."
+  tmux display-message "tpm: cannot resolve project for session '$session_name'"
   exit 1
 fi
 
@@ -27,47 +39,32 @@ project_path=$(get_path "$project_key")
 tool_cmd=$(get_tool "$project_key")
 editor_cmd=$(get_editor "$project_key")
 
+if [[ ! -d "$project_path" ]]; then
+  tmux display-message "tpm: project path missing for '$project_key': $project_path"
+  exit 1
+fi
+
 repaired=0
 
-# --- Check window 0: claude ---
-# Look for a window named "claude"
-if ! tmux list-windows -t "=$session_name" -F '#{window_name}' | grep -qx "claude"; then
-  # Window is missing — recreate at index 0 if available, otherwise at next slot
-  # Try to insert at index 0
-  if ! tmux list-windows -t "=$session_name" -F '#{window_index}' | grep -qx "0"; then
-    tmux new-window -t "=$session_name:0" -n "claude" -c "$project_path"
-  else
-    # Index 0 is occupied by something else — create claude and swap
-    tmux new-window -t "=$session_name" -n "claude" -c "$project_path"
-    # Move it to the front
-    claude_idx=$(tmux list-windows -t "=$session_name" -F '#{window_index} #{window_name}' | awk '$2=="claude"{print $1}')
-    if [[ -n "$claude_idx" && "$claude_idx" != "0" ]]; then
-      tmux swap-window -t "=$session_name:0" -s "=$session_name:$claude_idx"
-    fi
-  fi
-  tmux send-keys -t "=$session_name:claude" "$tool_cmd" Enter
+# Tool window (always required).
+if ! window_exists "$session_name" "$TPM_WINDOW_TOOL"; then
+  tmux new-window -t "=$session_name" -n "$TPM_WINDOW_TOOL" -c "$project_path" "$tool_cmd"
   repaired=$((repaired + 1))
 fi
 
-# --- Check window 1: editor (if enabled) ---
+# Editor window (only if enabled for this project).
 if has_editor "$project_key"; then
-  if ! tmux list-windows -t "=$session_name" -F '#{window_name}' | grep -qx "editor"; then
-    if ! tmux list-windows -t "=$session_name" -F '#{window_index}' | grep -qx "1"; then
-      tmux new-window -t "=$session_name:1" -n "editor" -c "$project_path"
-    else
-      tmux new-window -t "=$session_name" -n "editor" -c "$project_path"
-      editor_idx=$(tmux list-windows -t "=$session_name" -F '#{window_index} #{window_name}' | awk '$2=="editor"{print $1}')
-      if [[ -n "$editor_idx" && "$editor_idx" != "1" ]]; then
-        tmux swap-window -t "=$session_name:1" -s "=$session_name:$editor_idx"
-      fi
-    fi
-    tmux send-keys -t "=$session_name:editor" "$editor_cmd" Enter
+  if ! window_exists "$session_name" "$TPM_WINDOW_EDITOR"; then
+    tmux new-window -t "=$session_name" -n "$TPM_WINDOW_EDITOR" -c "$project_path" "$editor_cmd"
     repaired=$((repaired + 1))
   fi
 fi
 
+# Re-tag in case the session was restored without options (e.g. tmux-resurrect).
+tag_session "$session_name" "$project_key"
+
 if (( repaired > 0 )); then
-  tmux display-message "Repaired $repaired window(s) in project '$session_name'."
+  tmux display-message "tpm: repaired $repaired window(s) in '$session_name'"
 else
-  tmux display-message "Project '$session_name' — all windows intact."
+  tmux display-message "tpm: '$session_name' — all windows present"
 fi

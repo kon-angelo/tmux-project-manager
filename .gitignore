@@ -1,0 +1,8 @@
+# Editor backups
+*.swp
+*~
+.DS_Store
+
+# Test scratch
+/tmp/
+*.tmp

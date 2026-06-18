@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# preview.sh — Render the preview pane for the project picker.
+# preview.sh — Render the right-pane preview for the project picker.
 # Usage: preview.sh <session_name>
-# Resolves project info from YAML using the session name (alias).
+
+set -uo pipefail
 
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=utils.sh
 source "$CURRENT_DIR/utils.sh"
 
-session_name="$1"
+session_name="${1:-}"
 [[ -z "$session_name" ]] && exit 0
 
-# Resolve session name (alias) to project key
 project_key=$(resolve_project_key "$session_name")
 if [[ -z "$project_key" ]]; then
   echo "Unknown project: $session_name"
@@ -29,10 +30,9 @@ echo ""
 if tmux has-session -t "=$session_name" 2>/dev/null; then
   echo "Session: RUNNING"
   echo ""
-
-  # Window list
   echo "Windows:"
-  tmux list-windows -t "=$session_name" -F '  #{window_index}: #{window_name} (#{pane_current_command})' 2>/dev/null
+  tmux list-windows -t "=$session_name" \
+    -F '  #{window_index}: #{window_name} (#{pane_current_command})' 2>/dev/null
   echo ""
 else
   echo "Session: NOT RUNNING"
@@ -42,15 +42,14 @@ fi
 # --- Git Info ---
 if [[ -d "$project_path/.git" ]]; then
   echo "Git:"
-  branch=$(git -C "$project_path" branch --show-current 2>/dev/null)
+  branch=$(git -C "$project_path" branch --show-current 2>/dev/null || true)
   [[ -n "$branch" ]] && echo "  Branch: $branch"
 
-  # Short status (max 5 lines)
-  git_status=$(git -C "$project_path" status --short 2>/dev/null | head -5)
+  git_status=$(git -C "$project_path" status --short 2>/dev/null || true)
   if [[ -n "$git_status" ]]; then
     echo "  Status:"
-    echo "$git_status" | sed 's/^/    /'
-    total=$(git -C "$project_path" status --short 2>/dev/null | wc -l | tr -d ' ')
+    printf '%s\n' "$git_status" | head -5 | sed 's/^/    /'
+    total=$(printf '%s\n' "$git_status" | wc -l | tr -d ' ')
     if (( total > 5 )); then
       echo "    ... and $((total - 5)) more"
     fi
@@ -61,12 +60,10 @@ if [[ -d "$project_path/.git" ]]; then
 fi
 
 # --- Config ---
-tool=$(get_tool "$project_key")
-editor=$(get_editor "$project_key")
 echo "Config:"
-echo "  Tool:   $tool"
+echo "  Tool:   $(get_tool "$project_key")"
 if has_editor "$project_key"; then
-  echo "  Editor: $editor"
+  echo "  Editor: $(get_editor "$project_key")"
 else
   echo "  Editor: disabled"
 fi
