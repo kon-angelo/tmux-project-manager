@@ -321,6 +321,41 @@ resolve_project_key() {
   printf '%s\n' "${_TPM_ALIAS_TO_KEY[$query]:-}"
 }
 
+# Resolve a query to a project key via exact match first, then unique prefix
+# match against all known aliases and keys. Returns the canonical key if
+# exactly one candidate matches; empty string otherwise.
+resolve_project_key_fuzzy() {
+  load_projects_cache
+  local query="$1"
+  [[ -z "$query" ]] && return 0
+
+  # 1. Exact match (fast path via the alias→key map)
+  local exact="${_TPM_ALIAS_TO_KEY[$query]:-}"
+  if [[ -n "$exact" ]]; then
+    printf '%s\n' "$exact"
+    return 0
+  fi
+
+  # 2. Unique prefix match across all aliases and keys
+  local candidate="" count=0
+  local entry key
+  for entry in "${!_TPM_ALIAS_TO_KEY[@]}"; do
+    if [[ "$entry" == "$query"* ]]; then
+      key="${_TPM_ALIAS_TO_KEY[$entry]}"
+      # De-duplicate: multiple aliases may map to the same key.
+      if [[ "$key" != "$candidate" ]]; then
+        candidate="$key"
+        (( ++count ))
+      fi
+      (( count > 1 )) && break
+    fi
+  done
+
+  if (( count == 1 )); then
+    printf '%s\n' "$candidate"
+  fi
+}
+
 # --- Tmux helpers ---
 
 tmux_base_index() {

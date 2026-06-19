@@ -4,6 +4,10 @@
 #
 # picker.sh — fzf-based project picker with preview and action keybinds.
 # Invoked by the configured key (default M-p, no prefix).
+#
+# Supports two search modes (toggled with ctrl-a inside fzf):
+#   fuzzy  — default fzf fuzzy matching
+#   strict — exact substring matching only (alias-oriented)
 
 set -euo pipefail
 
@@ -26,6 +30,7 @@ load_session_cache
 # --- State (user-scoped) ---
 state_file="${TPM_STATE_PREFIX}-picker-state"
 sort_file="${TPM_STATE_PREFIX}-picker-sort"
+search_file="${TPM_STATE_PREFIX}-picker-search"
 list_file="${TPM_STATE_PREFIX}-picker-list"
 result_file="${TPM_STATE_PREFIX}-picker-result"
 
@@ -34,6 +39,9 @@ filter="all"
 
 sort_mode="alpha"
 [[ -f "$sort_file" ]] && sort_mode=$(<"$sort_file")
+
+search_mode="fuzzy"
+[[ -f "$search_file" ]] && search_mode=$(<"$search_file")
 
 # --- Detect current project for highlighting/sorting ---
 # Only mark a project as "current" if we're actually inside a managed session.
@@ -118,7 +126,7 @@ if [[ ! -s "$list_file" ]]; then
   exit 0
 fi
 
-header="Projects [$filter|$sort_mode]  enter:switch  alt-1..9:quick  ^s:sort  ^r:repair  ^x:kill  ^n:shell  ^e:editor  ^f:filter"
+header="Projects [$filter|$sort_mode|$search_mode]  enter:switch  alt-1..9:quick  ^a:search  ^s:sort  ^r:repair  ^x:kill  ^n:shell  ^e:editor  ^f:filter"
 
 # --- Run fzf inside a tmux popup and capture the result via a file ---
 # We can't reliably capture fzf's stdout through `$(tmux display-popup -E ...)`,
@@ -134,6 +142,13 @@ header="Projects [$filter|$sort_mode]  enter:switch  alt-1..9:quick  ^s:sort  ^r
 # on that row, so the wrapper script's default action handles it.
 rm -f "$result_file"
 
+# In strict mode, fzf uses exact matching restricted to alias/key fields only
+# (fields 1=session_name, 2=key). In fuzzy mode, all fields are searched.
+_fzf_search_flag=""
+if [[ "$search_mode" == "strict" ]]; then
+  _fzf_search_flag="--exact --nth=1,2"
+fi
+
 tmux display-popup -w 90% -h 80% -E "
   cat '$list_file' | \
   fzf \
@@ -146,7 +161,7 @@ tmux display-popup -w 90% -h 80% -E "
     --marker='●' \
     --preview='$CURRENT_DIR/preview.sh {1}' \
     --preview-window='down:50%:wrap' \
-    --expect='ctrl-r,ctrl-x,ctrl-n,ctrl-e,ctrl-f,ctrl-s' \
+    --expect='ctrl-a,ctrl-r,ctrl-x,ctrl-n,ctrl-e,ctrl-f,ctrl-s' \
     --bind='alt-1:pos(1)+accept' \
     --bind='alt-2:pos(2)+accept' \
     --bind='alt-3:pos(3)+accept' \
@@ -158,6 +173,7 @@ tmux display-popup -w 90% -h 80% -E "
     --bind='alt-9:pos(9)+accept' \
     --no-sort \
     --reverse \
+    $_fzf_search_flag \
     > '$result_file'
 " 2>/dev/null || true
 
@@ -183,6 +199,15 @@ fi
 
 # --- Dispatch ---
 case "$action_key" in
+  ctrl-a)
+    if [[ "$search_mode" == "fuzzy" ]]; then
+      printf 'strict' > "$search_file"
+    else
+      printf 'fuzzy' > "$search_file"
+    fi
+    exec "$CURRENT_DIR/picker.sh"
+    ;;
+
   ctrl-s)
     if [[ "$sort_mode" == "alpha" ]]; then
       printf 'lru' > "$sort_file"
