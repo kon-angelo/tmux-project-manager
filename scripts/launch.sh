@@ -7,7 +7,8 @@
 #
 # Flags:
 #   --background    Create/ensure the session but don't switch the client to it.
-#                   Useful for automation (e.g., task-agent spawning workers).
+#                   Prints the session name to stdout for automation callers.
+#                   Useful for task-agent spawning workers into project sessions.
 #
 # Behaviour:
 #   - If the session already exists and is managed, switch to it (or no-op with --background).
@@ -72,7 +73,9 @@ if tmux has-session -t "=$session_name" 2>/dev/null; then
     exit 1
   fi
   record_lru "$project_key"
-  if [[ "$_TPM_BACKGROUND" -eq 0 ]]; then
+  if [[ "$_TPM_BACKGROUND" -eq 1 ]]; then
+    echo "$session_name"
+  else
     tmux switch-client -t "=$session_name"
   fi
   exit 0
@@ -98,6 +101,8 @@ record_lru "$project_key"
 tmux select-window -t "=$session_name:$TPM_WINDOW_TOOL"
 
 # Switch the current client to the new session (unless --background).
-if [[ "$_TPM_BACKGROUND" -eq 0 ]]; then
+if [[ "$_TPM_BACKGROUND" -eq 1 ]]; then
+  echo "$session_name"
+else
   tmux switch-client -t "=$session_name"
 fi
