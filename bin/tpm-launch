@@ -12,4 +12,9 @@
 #   tpm-launch gg         # prints "gg"
 #   session=$(tpm-launch gardener)  # capture for automation
 
-exec "$(dirname "$0")/../scripts/launch.sh" --background "$@"
+# Resolve through symlinks to find the real script location.
+SELF="${BASH_SOURCE[0]}"
+while [[ -L "$SELF" ]]; do
+  SELF="$(readlink "$SELF")"
+done
+exec "$(cd "$(dirname "$SELF")" && pwd)/../scripts/launch.sh" --background "$@"
