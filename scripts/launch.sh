@@ -3,10 +3,14 @@
 # Copyright (c) 2026 Konstantinos Angelopoulos
 #
 # launch.sh — Create a project session with managed windows.
-# Usage: launch.sh <project-key>
+# Usage: launch.sh [--background] <project-key>
+#
+# Flags:
+#   --background    Create/ensure the session but don't switch the client to it.
+#                   Useful for automation (e.g., task-agent spawning workers).
 #
 # Behaviour:
-#   - If the session already exists and is managed, switch to it.
+#   - If the session already exists and is managed, switch to it (or no-op with --background).
 #   - If a session with the same name exists but isn't managed, refuse.
 #   - Otherwise: create a new session with window 0 = tool, window 1 = editor (optional).
 
@@ -18,10 +22,20 @@ source "$CURRENT_DIR/utils.sh"
 
 load_projects_cache
 
-project_key="${1:-}"
+# --- Parse flags ---
+_TPM_BACKGROUND=0
+project_key=""
+
+for arg in "$@"; do
+  case "$arg" in
+    --background) _TPM_BACKGROUND=1 ;;
+    -*) echo "Unknown flag: $arg" >&2; exit 1 ;;
+    *) project_key="$arg" ;;
+  esac
+done
 
 if [[ -z "$project_key" ]]; then
-  echo "Usage: launch.sh <project-key>" >&2
+  echo "Usage: launch.sh [--background] <project-key>" >&2
   exit 1
 fi
 
@@ -58,7 +72,9 @@ if tmux has-session -t "=$session_name" 2>/dev/null; then
     exit 1
   fi
   record_lru "$project_key"
-  tmux switch-client -t "=$session_name"
+  if [[ "$_TPM_BACKGROUND" -eq 0 ]]; then
+    tmux switch-client -t "=$session_name"
+  fi
   exit 0
 fi
 
@@ -81,5 +97,7 @@ record_lru "$project_key"
 # Focus the tool window by name (works regardless of base-index).
 tmux select-window -t "=$session_name:$TPM_WINDOW_TOOL"
 
-# Switch the current client to the new session.
-tmux switch-client -t "=$session_name"
+# Switch the current client to the new session (unless --background).
+if [[ "$_TPM_BACKGROUND" -eq 0 ]]; then
+  tmux switch-client -t "=$session_name"
+fi
