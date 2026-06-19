@@ -121,6 +121,15 @@ build_lines() {
 
 build_lines "$filter" "$sort_mode" | sort -t$'\t' -k1,1 -k2,2 -s | cut -f3- > "$list_file"
 
+# If the user has the "running" filter active but nothing is actually running,
+# transparently fall back to "all" so the picker remains useful instead of
+# bailing out with a "no projects found" message. The persisted filter state
+# is left untouched: as soon as a project is running, the filter snaps back.
+if [[ ! -s "$list_file" && "$filter" == "running" ]]; then
+  filter="all"
+  build_lines "$filter" "$sort_mode" | sort -t$'\t' -k1,1 -k2,2 -s | cut -f3- > "$list_file"
+fi
+
 if [[ ! -s "$list_file" ]]; then
   tmux display-message "tpm: no projects found (filter: $filter) — check $TPM_PROJECTS_FILE"
   exit 0
