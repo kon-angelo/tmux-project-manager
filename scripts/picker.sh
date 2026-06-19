@@ -36,11 +36,17 @@ sort_mode="alpha"
 [[ -f "$sort_file" ]] && sort_mode=$(<"$sort_file")
 
 # --- Detect current project for highlighting/sorting ---
-current_pane_path=$(tmux display-message -p '#{pane_current_path}' 2>/dev/null || true)
-current_project_key=$(detect_current_project "$current_pane_path")
+# Only mark a project as "current" if we're actually inside a managed session.
+# The path-based detection disambiguates nested projects (e.g. dev/proj1 vs
+# dev/proj1/subproj) but should not activate from random unmanaged sessions.
+current_session=$(tmux display-message -p '#{session_name}' 2>/dev/null || true)
 current_session_name=""
-if [[ -n "$current_project_key" ]]; then
-  current_session_name=$(get_session_name "$current_project_key")
+if is_managed_session "$current_session"; then
+  current_pane_path=$(tmux display-message -p '#{pane_current_path}' 2>/dev/null || true)
+  current_project_key=$(detect_current_project "$current_pane_path")
+  if [[ -n "$current_project_key" ]]; then
+    current_session_name=$(get_session_name "$current_project_key")
+  fi
 fi
 
 # --- Build the list ---
