@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# tpm-launch — Ensure a project session exists (public CLI for automation)
+#
+# Usage: tpm-launch <project-key-or-alias>
+#
+# Creates the project session if it doesn't exist (with opencode + nvim
+# windows, tagged, LRU tracked). If it already exists, no-ops.
+# Prints the session name to stdout. Does not switch the client.
+#
+# Examples:
+#   tpm-launch dotfiles   # prints "dot"
+#   tpm-launch gg         # prints "gg"
+#   session=$(tpm-launch gardener)  # capture for automation
+
+exec "$(dirname "$0")/../scripts/launch.sh" --background "$@"

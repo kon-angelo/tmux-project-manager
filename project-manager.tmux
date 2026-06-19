@@ -56,6 +56,7 @@ tmux set-environment -g TPM_PROJECTS_FILE "$projects_file"
 tmux set-environment -g TPM_DEFAULT_TOOL "$(get_opt "@tpm-default-tool" "$default_tool")"
 tmux set-environment -g TPM_DEFAULT_EDITOR "$(get_opt "@tpm-default-editor" "$default_editor")"
 tmux set-environment -g TPM_SCRIPTS_DIR "$SCRIPTS_DIR"
+tmux set-environment -g TPM_BIN "$CURRENT_DIR/bin"
 
 # --- Bind keys ---
 # Picker: -n means root key table (no prefix). On by default.
