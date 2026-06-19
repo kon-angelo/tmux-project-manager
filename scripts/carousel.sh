@@ -4,13 +4,15 @@
 #
 # carousel.sh — Cycle through the project session's working windows.
 # Sequence (within the current project session):
-#   claude  →  editor  →  last shell  →  claude  →  ...
+#   claude  →  editor  →  shell  →  claude  →  ...
+#
+# "Back to shell" returns to whichever shell window the user was in before
+# entering the claude/editor leg. The originating window ID is saved in the
+# session-scoped option @tpm-carousel-origin when leaving a shell window.
+# If that window no longer exists, falls back to the highest-indexed shell
+# window (or creates one).
 #
 # Definitions:
-#   - "last shell" is the highest-indexed window that is neither $TPM_WINDOW_TOOL
-#     nor $TPM_WINDOW_EDITOR. If no such window exists when the carousel reaches
-#     this slot, a new window named "shell" is created (cwd = project path) and
-#     selected.
 #   - If a project has the editor window disabled (nvim: false), the editor
 #     slot is skipped: claude → shell → claude.
 #
@@ -36,10 +38,24 @@ project_key=$(get_session_project_key "$session_name") || true
 
 project_path=$(get_path "$project_key")
 
-# Locate (or create) the "last shell" window — the highest-indexed window
-# whose name is neither claude nor editor. Prints the resolved window name on
-# success.
+# Return to the shell window the user was in before the carousel entered the
+# tool/editor leg. Uses the saved @tpm-carousel-origin window ID if it still
+# exists; otherwise falls back to the highest-indexed non-tool/non-editor
+# window, creating a new "shell" window as a last resort.
 go_to_shell() {
+  # 1. Try the saved origin window.
+  local origin_id
+  origin_id=$(tmux show-option -t "=$session_name:" -qv "@tpm-carousel-origin" 2>/dev/null || true)
+  if [[ -n "$origin_id" ]]; then
+    # Verify the window still exists in this session.
+    if tmux list-windows -t "=$session_name" -F '#{window_id}' 2>/dev/null \
+         | grep -qx -- "$origin_id"; then
+      tmux select-window -t "$origin_id"
+      return
+    fi
+  fi
+
+  # 2. Fallback: highest-indexed shell window.
   local last_name
   last_name=$(tmux list-windows -t "=$session_name" \
                 -F '#{window_index} #{window_name}' 2>/dev/null \
@@ -59,8 +75,13 @@ current_window=$(tmux display-message -p '#{window_name}' 2>/dev/null || echo ""
 
 case "$current_window" in
   "$TPM_WINDOW_TOOL")
-    # claude → editor (or skip to shell if editor disabled / missing)
-    if has_editor "$project_key" && window_exists "$session_name" "$TPM_WINDOW_EDITOR"; then
+    # claude → editor (or skip to shell if editor disabled)
+    if has_editor "$project_key"; then
+      if ! window_exists "$session_name" "$TPM_WINDOW_EDITOR"; then
+        # Editor window was closed or never created — recreate it.
+        editor_cmd=$(get_editor "$project_key")
+        tmux new-window -t "=$session_name" -n "$TPM_WINDOW_EDITOR" -c "$project_path" "$editor_cmd"
+      fi
       tmux select-window -t "=$session_name:$TPM_WINDOW_EDITOR"
     else
       go_to_shell
@@ -74,7 +95,12 @@ case "$current_window" in
 
   *)
     # any shell / task-worker / other window → claude
+    # Save the current window ID so we can return here later.
     if window_exists "$session_name" "$TPM_WINDOW_TOOL"; then
+      origin_id=$(tmux display-message -p '#{window_id}' 2>/dev/null || true)
+      if [[ -n "$origin_id" ]]; then
+        tmux set-option -t "=$session_name:" "@tpm-carousel-origin" "$origin_id"
+      fi
       tmux select-window -t "=$session_name:$TPM_WINDOW_TOOL"
     fi
     ;;
