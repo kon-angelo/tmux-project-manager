@@ -211,6 +211,11 @@ case "$action_key" in
 
   ctrl-x)
     if tmux has-session -t "=$selected_session" 2>/dev/null; then
+      # Guard: if killing the active session, switch away first to avoid
+      # stranding the user with no attached session.
+      if [[ "$selected_session" == "$current_session" ]]; then
+        tmux switch-client -n
+      fi
       tmux kill-session -t "=$selected_session"
       tmux display-message "tpm: killed '$selected_session'"
     else
