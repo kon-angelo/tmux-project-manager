@@ -30,19 +30,19 @@ TPM_TMP_DIR="${TMPDIR:-/tmp}"
 TPM_STATE_PREFIX="${TPM_TMP_DIR%/}/tpm-${USER:-default}"
 
 # --- Cache (associative arrays, populated by load_projects_cache) ---
-declare -gA _TPM_PATH        # key -> filesystem path
-declare -gA _TPM_SESSION     # key -> session name (first alias or key)
-declare -gA _TPM_DESC        # key -> description
-declare -gA _TPM_TOOL        # key -> tool command (default-resolved)
-declare -gA _TPM_EDITOR      # key -> editor command (default-resolved)
-declare -gA _TPM_HAS_EDITOR  # key -> "1" or "0"
-declare -gA _TPM_ALIASES     # key -> comma-separated alias list
-declare -gA _TPM_PERSONAS    # key -> comma-separated persona list
-declare -gA _TPM_ALIAS_TO_KEY # alias-or-key -> canonical key
-declare -ga _TPM_KEYS        # ordered list of keys (file order)
+declare -A _TPM_PATH        # key -> filesystem path
+declare -A _TPM_SESSION     # key -> session name (first alias or key)
+declare -A _TPM_DESC        # key -> description
+declare -A _TPM_TOOL        # key -> tool command (default-resolved)
+declare -A _TPM_EDITOR      # key -> editor command (default-resolved)
+declare -A _TPM_HAS_EDITOR  # key -> "1" or "0"
+declare -A _TPM_ALIASES     # key -> comma-separated alias list
+declare -A _TPM_PERSONAS    # key -> comma-separated persona list
+declare -A _TPM_ALIAS_TO_KEY # alias-or-key -> canonical key
+declare -a _TPM_KEYS        # ordered list of keys (file order)
 
 # Cached session-set (built lazily).
-declare -ga _TPM_SESSION_LIST
+declare -a _TPM_SESSION_LIST
 _TPM_SESSION_LIST_LOADED=0
 
 _TPM_CACHE_LOADED=0
@@ -57,6 +57,7 @@ load_projects_cache() {
   while IFS=$'\x1f' read -r key alias_first path desc tool editor nvim aliases personas; do
     [[ -z "$key" ]] && continue
     _TPM_KEYS+=("$key")
+    path="${path/#\~/$HOME}"
     _TPM_PATH["$key"]="${path%/}"
     _TPM_SESSION["$key"]="${alias_first:-$key}"
     _TPM_DESC["$key"]="$desc"

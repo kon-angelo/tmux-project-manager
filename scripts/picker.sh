@@ -45,13 +45,17 @@ search_mode="fuzzy"
 
 # --- Detect current project for highlighting/sorting ---
 # Only mark a project as "current" if we're actually inside a managed session.
-# The path-based detection disambiguates nested projects (e.g. dev/proj1 vs
-# dev/proj1/subproj) but should not activate from random unmanaged sessions.
+# Detection order:
+#   1. @tpm-project-key session option (set at launch, survives path case mismatches)
+#   2. Path-based longest-prefix matching (for nested project disambiguation)
 current_session=$(tmux display-message -p '#{session_name}' 2>/dev/null || true)
 current_session_name=""
 if is_managed_session "$current_session"; then
-  current_pane_path=$(tmux display-message -p '#{pane_current_path}' 2>/dev/null || true)
-  current_project_key=$(detect_current_project "$current_pane_path")
+  current_project_key=$(get_session_project_key "$current_session" 2>/dev/null || true)
+  if [[ -z "$current_project_key" ]]; then
+    current_pane_path=$(tmux display-message -p '#{pane_current_path}' 2>/dev/null || true)
+    current_project_key=$(detect_current_project "$current_pane_path")
+  fi
   if [[ -n "$current_project_key" ]]; then
     current_session_name=$(get_session_name "$current_project_key")
   fi
@@ -158,12 +162,25 @@ if [[ "$search_mode" == "strict" ]]; then
   _fzf_search_flag="--exact --nth=1,2"
 fi
 
+# If we're inside a managed session and the current project is the first entry
+# in the list, make it a non-selectable sticky header line. This way the user
+# sees where they are, but Enter immediately switches to the next-most-recent
+# project without having to skip over "self".
+_fzf_header_lines=""
+if [[ -n "$current_session_name" ]]; then
+  first_entry=$(head -1 "$list_file" | cut -f1)
+  if [[ "$first_entry" == "$current_session_name" ]]; then
+    _fzf_header_lines="--header-lines=1"
+  fi
+fi
+
 tmux display-popup -w 90% -h 80% -E "
   cat '$list_file' | \
   fzf \
     --ansi \
     --height=100% \
     --header='$header' \
+    $_fzf_header_lines \
     --delimiter=\$'\t' \
     --with-nth=4 \
     --pointer='▶' \
