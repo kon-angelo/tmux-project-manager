@@ -78,6 +78,7 @@ fi
 build_lines() {
   local f="${1:-all}" sm="${2:-alpha}"
   local DIM=$'\033[2;38;5;240m'   # SGR 2 (dim) + 256-color dark gray
+  local CURRENT=$'\033[38;5;220m'   # yellow — header line (non-selectable)
   local RESET=$'\033[0m'
 
   while IFS=$'\t' read -r session_name key path desc status; do
@@ -116,7 +117,11 @@ build_lines() {
     # Pad visible block to a fixed column width so the dimmed metadata
     # always starts at the same horizontal position.
     printf -v visible '%s %-12s %-44s' "$marker" "$session_name" "$key_display"
-    display="${visible}${DIM}${searchable}${RESET}"
+    if [[ "$session_name" == "$current_session_name" ]]; then
+      display="${CURRENT}${visible}${searchable}${RESET}"
+    else
+      display="${visible}${DIM}${searchable}${RESET}"
+    fi
 
     # Fields: sort_group, sort_secondary, session_name, key, searchable, display
     printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$sort_group" "$sort_secondary" "$session_name" "$key" "$searchable" "$display"
