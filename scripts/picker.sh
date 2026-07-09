@@ -167,6 +167,17 @@ if [[ "$search_mode" == "strict" ]]; then
   _fzf_search_flag="--exact --nth=1,2"
 fi
 
+# If the current project is at the top of the list, start the cursor on the
+# second item so Enter immediately switches elsewhere — but the current project
+# remains reachable by navigating up.
+_fzf_start_pos=""
+if [[ -n "$current_session_name" ]]; then
+  first_entry=$(head -1 "$list_file" | cut -f1)
+  if [[ "$first_entry" == "$current_session_name" ]]; then
+    _fzf_start_pos="--bind='start:wait+pos(2)'"
+  fi
+fi
+
 tmux display-popup -w 90% -h 80% -E "
   cat '$list_file' | \
   fzf \
@@ -192,6 +203,7 @@ tmux display-popup -w 90% -h 80% -E "
     --no-sort \
     --reverse \
     $_fzf_search_flag \
+    $_fzf_start_pos \
     > '$result_file'
 " 2>/dev/null || true
 
