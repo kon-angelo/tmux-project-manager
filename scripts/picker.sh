@@ -78,7 +78,7 @@ fi
 build_lines() {
   local f="${1:-all}" sm="${2:-alpha}"
   local DIM=$'\033[2;38;5;240m'   # SGR 2 (dim) + 256-color dark gray
-  local CURRENT=$'\033[38;5;220m'   # yellow — header line (non-selectable)
+  local CURRENT=$'\033[38;5;220m'   # yellow — current project highlight
   local RESET=$'\033[0m'
 
   while IFS=$'\t' read -r session_name key path desc status; do
@@ -167,25 +167,12 @@ if [[ "$search_mode" == "strict" ]]; then
   _fzf_search_flag="--exact --nth=1,2"
 fi
 
-# If we're inside a managed session and the current project is the first entry
-# in the list, make it a non-selectable sticky header line. This way the user
-# sees where they are, but Enter immediately switches to the next-most-recent
-# project without having to skip over "self".
-_fzf_header_lines=""
-if [[ -n "$current_session_name" ]]; then
-  first_entry=$(head -1 "$list_file" | cut -f1)
-  if [[ "$first_entry" == "$current_session_name" ]]; then
-    _fzf_header_lines="--header-lines=1"
-  fi
-fi
-
 tmux display-popup -w 90% -h 80% -E "
   cat '$list_file' | \
   fzf \
     --ansi \
     --height=100% \
     --header='$header' \
-    $_fzf_header_lines \
     --delimiter=\$'\t' \
     --with-nth=4 \
     --pointer='▶' \
