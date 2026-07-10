@@ -65,8 +65,12 @@ go_to_shell() {
 
   if [[ -z "$last_name" ]]; then
     # No shell window exists — create one at the end of the session.
-    tmux new-window -t "=$session_name" -n "shell" -c "$project_path"
-    last_name="shell"
+    # Omit -n so tmux uses the default shell name; the after-new-window
+    # hook (dotfiles) renames it to a unique adjective-noun label so
+    # repeated invocations don't produce duplicate window names.
+    # -P -F captures the *final* name after the hook has run.
+    last_name=$(tmux new-window -t "=$session_name" -c "$project_path" \
+                  -P -F '#{window_name}')
   fi
   tmux select-window -t "=$session_name:$last_name"
 }
