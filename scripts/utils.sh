@@ -29,6 +29,15 @@ TPM_WINDOW_EDITOR="editor"
 TPM_TMP_DIR="${TMPDIR:-/tmp}"
 TPM_STATE_PREFIX="${TPM_TMP_DIR%/}/tpm-${USER:-default}"
 
+# --- Agent status ---
+# Per-source option namespace: @tpm-agent-status-<source>-<id> = <state>
+# Aggregated read-only cache: @tpm-agent-status = <highest-priority state>
+#
+# Clients (opencode plugin, Claude Code hook) write per-source options and
+# call the aggregator. The picker reads only the aggregated option.
+TPM_AGENT_STATUS_OPT="@tpm-agent-status"
+TPM_AGENT_STATUS_PREFIX="@tpm-agent-status-"
+
 # --- Cache (associative arrays, populated by load_projects_cache) ---
 declare -A _TPM_PATH        # key -> filesystem path
 declare -A _TPM_SESSION     # key -> session name (first alias or key)
@@ -208,20 +217,24 @@ get_searchable_text() {
 
 # --- Project list (for picker) ---
 
-# TAB-separated lines: session_name, key, path, description, status (running|stopped)
+# TAB-separated lines: session_name, key, path, description, status (running|stopped), agent_status
+# agent_status is empty for stopped sessions and for running sessions with
+# no @tpm-agent-status-* options set. See `get_agent_status` for aggregation.
 list_projects() {
   load_projects_cache
   load_session_cache
-  local key session_name running
+  local key session_name running agent_status
   for key in "${_TPM_KEYS[@]}"; do
     session_name="${_TPM_SESSION[$key]:-$key}"
     if session_running "$session_name"; then
       running="running"
+      agent_status=$(get_agent_status "$session_name")
     else
       running="stopped"
+      agent_status=""
     fi
-    printf '%s\t%s\t%s\t%s\t%s\n' \
-      "$session_name" "$key" "${_TPM_PATH[$key]:-}" "${_TPM_DESC[$key]:-}" "$running"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$session_name" "$key" "${_TPM_PATH[$key]:-}" "${_TPM_DESC[$key]:-}" "$running" "$agent_status"
   done
 }
 
@@ -354,6 +367,133 @@ resolve_project_key_fuzzy() {
 
   if (( count == 1 )); then
     printf '%s\n' "$candidate"
+  fi
+}
+
+# --- Agent status ---
+#
+# Sessions may host one or more AI agents (opencode, claudecode, ...). Each
+# agent writes its own tmux session option:
+#
+#   @tpm-agent-status-<source>-<id> = <state>
+#
+# The picker doesn't read those directly. A cheap aggregator resolves the
+# highest-priority state across all sources and writes it to a single option:
+#
+#   @tpm-agent-status = <state>   # aggregated, one read per session
+#
+# Priority (high → low):  needs-input > error > done > working > ready
+#
+# `ready` and `""` render nothing. `done` is cleared automatically when the
+# user focuses the session (see update-status.sh).
+
+# Numeric priority for a state. Higher wins.
+agent_status_priority() {
+  case "${1:-}" in
+    needs-input) echo 4 ;;
+    error)       echo 3 ;;
+    done)        echo 2 ;;
+    working)     echo 1 ;;
+    ready)       echo 0 ;;
+    *)           echo 0 ;;
+  esac
+}
+
+# Read the aggregated agent status for a session. Empty if unset.
+get_agent_status() {
+  local session_name="$1"
+  tmux show-option -t "=$session_name:" -qv "$TPM_AGENT_STATUS_OPT" 2>/dev/null
+}
+
+# Write a per-source state and recompute the aggregate.
+# Usage: set_agent_status <session> <source> <id> <state>
+set_agent_status() {
+  local session_name="$1" source="$2" id="$3" state="$4"
+  [[ -z "$session_name" || -z "$source" || -z "$id" || -z "$state" ]] && return 1
+  if ! tmux has-session -t "=$session_name" 2>/dev/null; then
+    return 1
+  fi
+  tmux set-option -t "=$session_name:" "${TPM_AGENT_STATUS_PREFIX}${source}-${id}" "$state" 2>/dev/null
+  recompute_agent_status "$session_name"
+}
+
+# Clear a per-source entry and recompute.
+# Usage: clear_agent_source <session> <source> <id>
+clear_agent_source() {
+  local session_name="$1" source="$2" id="$3"
+  [[ -z "$session_name" || -z "$source" || -z "$id" ]] && return 1
+  if ! tmux has-session -t "=$session_name" 2>/dev/null; then
+    return 1
+  fi
+  tmux set-option -t "=$session_name:" -u "${TPM_AGENT_STATUS_PREFIX}${source}-${id}" 2>/dev/null || true
+  recompute_agent_status "$session_name"
+}
+
+# Enumerate the per-source status options for a session.
+# Prints one "<option_name> <value>" per line (tmux's native format). The
+# option prefix filter excludes the aggregate @tpm-agent-status option itself.
+list_agent_status_sources() {
+  local session_name="$1"
+  # tmux show-options output: `@tpm-agent-status-opencode-oc-123 "needs-input"`
+  # We keep tmux's whitespace separator and dequote inline where needed.
+  tmux show-options -t "=$session_name:" 2>/dev/null \
+    | grep -E "^${TPM_AGENT_STATUS_PREFIX}" || true
+}
+
+# Read every per-source state, pick the highest-priority one, and write it to
+# @tpm-agent-status. If nothing is set, unset the aggregate.
+recompute_agent_status() {
+  local session_name="$1"
+  if ! tmux has-session -t "=$session_name" 2>/dev/null; then
+    return 0
+  fi
+
+  local best_state="" best_prio=-1
+  local line name value prio
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    # Split on the first space: "name value" (value may be quoted).
+    name="${line%% *}"
+    value="${line#* }"
+    value="${value#\"}"
+    value="${value%\"}"
+    [[ -z "$value" ]] && continue
+    prio=$(agent_status_priority "$value")
+    if (( prio > best_prio )); then
+      best_prio=$prio
+      best_state="$value"
+    fi
+  done < <(list_agent_status_sources "$session_name")
+
+  if [[ -z "$best_state" ]]; then
+    tmux set-option -t "=$session_name:" -u "$TPM_AGENT_STATUS_OPT" 2>/dev/null || true
+  else
+    tmux set-option -t "=$session_name:" "$TPM_AGENT_STATUS_OPT" "$best_state" 2>/dev/null || true
+  fi
+}
+
+# Clear the `done` marker for a session when the user focuses it. Called from
+# update-status.sh on client-session-changed. Leaves needs-input / error alone
+# because those need explicit agent-side resolution.
+acknowledge_agent_status() {
+  local session_name="$1"
+  [[ -z "$session_name" ]] && return 0
+  local current
+  current=$(get_agent_status "$session_name")
+  if [[ "$current" == "done" ]]; then
+    # Clear every per-source entry that reports `done`, then recompute.
+    local line name value
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      name="${line%% *}"
+      value="${line#* }"
+      value="${value#\"}"
+      value="${value%\"}"
+      if [[ "$value" == "done" ]]; then
+        tmux set-option -t "=$session_name:" -u "$name" 2>/dev/null || true
+      fi
+    done < <(list_agent_status_sources "$session_name")
+    recompute_agent_status "$session_name"
   fi
 }
 

@@ -66,7 +66,7 @@ fi
 #   1. session_name   — used for extraction after fzf returns
 #   2. project_key    — passed through to fzf for searching
 #   3. searchable     — extra metadata bag (description, path, personas, aliases)
-#   4. display        — the visible content (marker + alias + key) shown to the user
+#   4. display        — the visible content (agent badge + marker + alias + key)
 #
 # Layout strategy:
 #   The visible content is emitted FIRST so the alias/key are always at the
@@ -75,13 +75,31 @@ fi
 #   bright-black foreground). fzf with --ansi strips the codes for matching,
 #   so the user can search by description/persona/path, but the content is
 #   visually de-emphasised and pushed to the right.
+#
+# Agent status badge (leftmost, 2 chars):
+#   `! ` yellow   needs-input   agent blocked on approval
+#   `x ` red      error         agent hit an error
+#   `● ` green    done          agent finished, unread
+#   `~ ` dim      working       agent is busy
+#   `  ` (blank)  ready / empty no attention needed
+#
+# The badge is only rendered when the aggregated status option is set on the
+# session (see get_agent_status in utils.sh). Sort order is NOT changed;
+# attention-needing projects surface visually, not positionally.
 build_lines() {
   local f="${1:-all}" sm="${2:-alpha}"
   local DIM=$'\033[2;38;5;240m'   # SGR 2 (dim) + 256-color dark gray
   local CURRENT=$'\033[38;5;220m'   # yellow — current project highlight
   local RESET=$'\033[0m'
 
-  while IFS=$'\t' read -r session_name key path desc status; do
+  # Nord palette for the agent badge — kept inline so the picker has no
+  # dependency on external colour definitions.
+  local BADGE_NEEDS=$'\033[1;38;5;179m'   # nord13 yellow, bold
+  local BADGE_ERROR=$'\033[1;38;5;167m'   # nord11 red, bold
+  local BADGE_DONE=$'\033[38;5;108m'      # nord14 green
+  local BADGE_WORKING=$'\033[2;38;5;244m' # dim grey
+
+  while IFS=$'\t' read -r session_name key path desc status agent_status; do
     [[ "$f" == "running" && "$status" != "running" ]] && continue
 
     local marker="·" sort_group="2"
@@ -92,6 +110,15 @@ build_lines() {
       marker="+"
       sort_group="1"
     fi
+
+    # Agent status badge. Always 2 visual columns wide, so all rows align.
+    local badge="  "
+    case "$agent_status" in
+      needs-input) badge="${BADGE_NEEDS}! ${RESET}" ;;
+      error)       badge="${BADGE_ERROR}x ${RESET}" ;;
+      done)        badge="${BADGE_DONE}● ${RESET}" ;;
+      working)     badge="${BADGE_WORKING}~ ${RESET}" ;;
+    esac
 
     # Secondary sort key depends on mode:
     #   alpha — session name (lexicographic ascending)
@@ -112,15 +139,16 @@ build_lines() {
       key_display="($key)"
     fi
 
-    local searchable visible display
+    local searchable body display
     searchable=$(get_searchable_text "$key")
-    # Pad visible block to a fixed column width so the dimmed metadata
-    # always starts at the same horizontal position.
-    printf -v visible '%s %-12s %-44s' "$marker" "$session_name" "$key_display"
+    # Pad body block to a fixed column width so the dimmed metadata always
+    # starts at the same horizontal position. The badge is prepended as-is;
+    # its ANSI codes don't affect printf's %-N padding of subsequent fields.
+    printf -v body '%s %-12s %-44s' "$marker" "$session_name" "$key_display"
     if [[ "$session_name" == "$current_session_name" ]]; then
-      display="${CURRENT}${visible}${searchable}${RESET}"
+      display="${badge}${CURRENT}${body}${searchable}${RESET}"
     else
-      display="${visible}${DIM}${searchable}${RESET}"
+      display="${badge}${body}${DIM}${searchable}${RESET}"
     fi
 
     # Fields: sort_group, sort_secondary, session_name, key, searchable, display
@@ -188,6 +216,7 @@ tmux display-popup -w 90% -h 80% -E "
     --with-nth=4 \
     --pointer='▶' \
     --marker='●' \
+    --color='pointer:green,fg+:green,bg+:-1' \
     --preview='$CURRENT_DIR/preview.sh {1}' \
     --preview-window='down:50%:wrap' \
     --expect='ctrl-a,ctrl-r,ctrl-x,ctrl-n,ctrl-e,ctrl-f,ctrl-s' \

@@ -34,6 +34,23 @@ echo ""
 # --- Session State ---
 if tmux has-session -t "=$session_name" 2>/dev/null; then
   echo "Session: RUNNING"
+
+  agent_status=$(get_agent_status "$session_name")
+  if [[ -n "$agent_status" ]]; then
+    echo "Agent:   $agent_status"
+    # List per-source contributors when there is more than one, so the user
+    # can see which agent is asking for input.
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      name="${line%% *}"
+      value="${line#* }"
+      value="${value#\"}"
+      value="${value%\"}"
+      # Strip prefix, leaving "<source>-<id>".
+      short="${name#${TPM_AGENT_STATUS_PREFIX}}"
+      echo "         - $short: $value"
+    done < <(list_agent_status_sources "$session_name")
+  fi
   echo ""
   echo "Windows:"
   tmux list-windows -t "=$session_name" \

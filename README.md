@@ -11,6 +11,7 @@ Manage project sessions in tmux. One session per project, with dedicated windows
 - **Window carousel** (`M-g`): cycle within a project session: claude → editor → last shell
 - **Filter toggle**: switch between all projects and running-only view
 - **Status bar**: exposes `#{@project-name}` for your tmux status line
+- **Agent status badges**: picker renders a coloured glyph per project when an AI agent inside the session needs attention (see [docs/agent-status.md](docs/agent-status.md) and [integrations/](integrations/))
 
 ## Requirements
 
@@ -139,6 +140,34 @@ Use `#{@project-name}` in your status line to show the active project:
 ```tmux
 set -g status-right "#{@project-name} | %H:%M"
 ```
+
+## Agent Status Badges
+
+If you run coding agents (OpenCode, Claude Code, …) inside project sessions,
+the picker can show a per-project badge indicating whether the agent needs
+attention:
+
+| Badge | State         | Meaning                              |
+|-------|---------------|--------------------------------------|
+| `!`   | `needs-input` | Agent blocked on approval / prompt   |
+| `x`   | `error`       | Agent hit an error                   |
+| `●`   | `done`        | Agent finished, output unread        |
+| `~`   | `working`     | Agent is busy                        |
+|       | `ready`       | Agent idle at the initial prompt     |
+
+The picker sort order is unchanged — badges are decoration only, not a
+priority queue. `done` clears when you focus the session.
+
+Wire up your agents via the adapters in [`integrations/`](integrations/) —
+they publish per-source state into tmux options and the picker aggregates
+across sources. Run the installer to auto-detect and set them up:
+
+```sh
+~/.tmux/plugins/tmux-project-manager/integrations/install.sh
+```
+
+See [docs/agent-status.md](docs/agent-status.md) for the option namespace
+and priority rules.
 
 ## Related Tools
 
