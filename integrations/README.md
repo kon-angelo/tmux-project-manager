@@ -8,17 +8,21 @@ Both are standalone: they don't depend on peon-ping or any other tool.
 
 ## Quick install
 
+Run the installer **from the TPM-installed copy of the plugin**, not a dev
+checkout — hook and plugin paths are pinned to wherever you run install.sh
+from, and pinning to a working-copy path is fragile:
+
 ```sh
-./install.sh
+~/.tmux/plugins/tmux-project-manager/integrations/install.sh
 ```
 
 Detects `opencode` and `claude` on your `$PATH` and wires up whatever is
 present. Safe to re-run — idempotent. Backups are created for every write.
 
 ```sh
-./install.sh --dry-run       # show what would change, don't touch anything
-./install.sh --only opencode   # limit to one integration
-./install.sh --uninstall     # remove symlinks and hook entries
+~/.tmux/plugins/tmux-project-manager/integrations/install.sh --dry-run       # preview
+~/.tmux/plugins/tmux-project-manager/integrations/install.sh --only opencode # single integration
+~/.tmux/plugins/tmux-project-manager/integrations/install.sh --uninstall     # remove symlinks and hook entries
 ```
 
 ## Status vocabulary

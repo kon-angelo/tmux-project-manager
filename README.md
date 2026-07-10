@@ -160,7 +160,8 @@ priority queue. `done` clears when you focus the session.
 
 Wire up your agents via the adapters in [`integrations/`](integrations/) —
 they publish per-source state into tmux options and the picker aggregates
-across sources. Run the installer to auto-detect and set them up:
+across sources. Run the installer from the TPM-installed copy to auto-detect
+and set them up:
 
 ```sh
 ~/.tmux/plugins/tmux-project-manager/integrations/install.sh

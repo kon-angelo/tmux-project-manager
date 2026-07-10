@@ -36,6 +36,11 @@ REPO_DIR="$(cd "$INSTALL_DIR/.." && pwd)"
 OPENCODE_PLUGIN_SRC="$INSTALL_DIR/opencode-tpm-status.ts"
 CLAUDECODE_HOOK_SRC="$INSTALL_DIR/claudecode-tpm-status.sh"
 
+# Default TPM install path, used to warn users when they run install.sh from
+# a dev checkout (which pins everything to a working-copy path that breaks
+# if the checkout moves or is deleted).
+TPM_STANDARD_PATH="$HOME/.tmux/plugins/tmux-project-manager"
+
 OPENCODE_PLUGIN_DEST_DIR="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}/plugins"
 OPENCODE_PLUGIN_DEST="$OPENCODE_PLUGIN_DEST_DIR/tpm-status.ts"
 
@@ -394,6 +399,17 @@ main() {
   info "  repo:     $REPO_DIR"
   info "  scripts:  $INSTALL_DIR"
   if (( DRY_RUN )); then info "  mode:     DRY RUN (no changes)"; fi
+
+  # Warn (loudly) when we're wiring hooks to a working checkout instead of
+  # the tpm-installed path. Absolute paths from a dev clone break the
+  # moment the checkout is moved or removed.
+  if [[ -d "$TPM_STANDARD_PATH" && "$REPO_DIR" != "$TPM_STANDARD_PATH" ]]; then
+    warn "you are running install.sh from a dev checkout ($REPO_DIR)"
+    warn "hooks/plugins will point at that path, which is fragile"
+    warn "recommended: re-run from the TPM-installed copy:"
+    warn "    $TPM_STANDARD_PATH/integrations/install.sh"
+    warn ""
+  fi
 
   local rc=0
   if (( UNINSTALL )); then
