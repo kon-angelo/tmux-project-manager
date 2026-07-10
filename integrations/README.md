@@ -23,7 +23,49 @@ present. Safe to re-run — idempotent. Backups are created for every write.
 ~/.tmux/plugins/tmux-project-manager/integrations/install.sh --dry-run       # preview
 ~/.tmux/plugins/tmux-project-manager/integrations/install.sh --only opencode # single integration
 ~/.tmux/plugins/tmux-project-manager/integrations/install.sh --uninstall     # remove symlinks and hook entries
+~/.tmux/plugins/tmux-project-manager/integrations/install.sh --status        # report current wiring
+~/.tmux/plugins/tmux-project-manager/integrations/install.sh --relocate <path>   # rewrite paths to a new install
 ```
+
+## Inspecting the install
+
+`install.sh --status` prints the current wiring — the opencode plugin
+symlink target, and the install-root each Claude Code hook path belongs to,
+grouped by root so mixed installs are obvious:
+
+```
+✓ opencode: symlink -> /Users/.../.tmux/plugins/tmux-project-manager/integrations/opencode-tpm-status.ts
+✓ claudecode: /Users/.../.tmux/plugins/tmux-project-manager  (SessionStart,UserPromptSubmit,Stop,...)
+```
+
+If a symlink is dangling or a hook script has gone missing, it warns.
+
+## Moving the install (relocate)
+
+If you move the plugin between locations — swapping a TPM install for a
+dev checkout, moving to a shared install under `/opt`, migrating across
+hosts — the absolute paths pinned in the opencode symlink and the CC
+`settings.json` need to follow.
+
+```sh
+install.sh --relocate <new-plugin-root>
+```
+
+Rewrites the opencode plugin symlink and every CC hook `command` that
+points at any current install (matched by the `claudecode-tpm-status.sh`
+basename suffix) to point at `<new-plugin-root>/integrations/…`.
+
+The new root must exist and contain both integration scripts — otherwise
+relocate refuses and does nothing. Backups of `settings.json` are created
+for every rewrite. Idempotent: re-running against the current install
+root is a no-op.
+
+Combine with `--dry-run` to preview:
+
+```sh
+install.sh --relocate /opt/tmux-project-manager --dry-run
+```
+
 
 ## Status vocabulary
 

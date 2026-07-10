@@ -21,6 +21,16 @@
 # Flags:
 #   --dry-run       Print what would happen; make no changes.
 #   --uninstall     Remove the opencode symlink and the CC hook entries.
+#   --status        Report current wiring: symlink target, hook paths, and
+#                   whether they still resolve. Read-only.
+#   --relocate <new-path>
+#                   Rewrite the opencode plugin symlink and every CC hook
+#                   entry currently pointing at any *installed* copy of
+#                   this plugin so they point at <new-path> instead.
+#                   Useful when moving between TPM and non-TPM installs,
+#                   or between hosts. The new path must exist and contain
+#                   integrations/opencode-tpm-status.ts and
+#                   integrations/claudecode-tpm-status.sh.
 #   --only opencode|claudecode
 #                   Restrict actions to one integration.
 #   --scripts-dir <path>
@@ -46,6 +56,12 @@ OPENCODE_PLUGIN_DEST="$OPENCODE_PLUGIN_DEST_DIR/tpm-status.ts"
 
 CLAUDE_SETTINGS="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
 
+# Basenames of the files under integrations/. Used by relocate/status to
+# recognise our own paths in symlinks and CC hook entries. These names are
+# stable across installs and are the anchor for path rewriting.
+OPENCODE_PLUGIN_BASENAME="opencode-tpm-status.ts"
+CLAUDECODE_HOOK_BASENAME="claudecode-tpm-status.sh"
+
 # Claude Code events we want to hook. Kept in sync with
 # integrations/claudecode-tpm-status.sh.
 CLAUDE_EVENTS=(
@@ -61,6 +77,8 @@ CLAUDE_EVENTS=(
 # --- Flags ---
 DRY_RUN=0
 UNINSTALL=0
+STATUS=0
+RELOCATE_TO=""
 ONLY=""
 
 usage() {
@@ -71,6 +89,8 @@ while (($#)); do
   case "$1" in
     --dry-run)   DRY_RUN=1; shift ;;
     --uninstall) UNINSTALL=1; shift ;;
+    --status)    STATUS=1; shift ;;
+    --relocate)  RELOCATE_TO="${2:-}"; shift 2 ;;
     --only)      ONLY="${2:-}"; shift 2 ;;
     --scripts-dir)
                  INSTALL_DIR="$(cd "$2" && pwd)"
@@ -87,6 +107,19 @@ if [[ -n "$ONLY" && "$ONLY" != "opencode" && "$ONLY" != "claudecode" ]]; then
   echo "Invalid --only value: $ONLY (want opencode or claudecode)" >&2
   exit 2
 fi
+
+# Guard against combining mutually-exclusive modes. Precedence:
+#   --status > --relocate > --uninstall > install (default)
+# We reject combinations explicitly rather than silently prefer one.
+_active_modes=0
+(( STATUS )) && (( ++_active_modes ))
+[[ -n "$RELOCATE_TO" ]] && (( ++_active_modes ))
+(( UNINSTALL )) && (( ++_active_modes ))
+if (( _active_modes > 1 )); then
+  echo "Choose at most one of --status, --relocate, --uninstall" >&2
+  exit 2
+fi
+unset _active_modes
 
 # --- Logging helpers ---
 log()      { printf '[install] %s\n' "$*"; }
@@ -391,6 +424,223 @@ JQ
 }
 
 # ============================================================================
+# Status: report current wiring
+# ============================================================================
+
+# Print the resolved path currently referenced by the opencode plugin
+# symlink, and flag whether the link is dangling.
+status_opencode() {
+  if [[ ! -e "$OPENCODE_PLUGIN_DEST" && ! -L "$OPENCODE_PLUGIN_DEST" ]]; then
+    skip "opencode: no plugin installed at $OPENCODE_PLUGIN_DEST"
+    return 0
+  fi
+  if [[ -L "$OPENCODE_PLUGIN_DEST" ]]; then
+    local target
+    target=$(readlink "$OPENCODE_PLUGIN_DEST")
+    if [[ -e "$target" ]]; then
+      ok "opencode: symlink -> $target"
+    else
+      warn "opencode: symlink -> $target (DANGLING)"
+      return 1
+    fi
+    if [[ "$(basename "$target")" != "$OPENCODE_PLUGIN_BASENAME" ]]; then
+      warn "opencode: symlink target basename is unexpected ($OPENCODE_PLUGIN_BASENAME expected)"
+    fi
+    return 0
+  fi
+  warn "opencode: $OPENCODE_PLUGIN_DEST exists but is not a symlink"
+  return 1
+}
+
+# Report every CC hook that points at our script — grouped by resolved
+# install-path so a caller can spot mixed installs.
+status_claudecode() {
+  if [[ ! -f "$CLAUDE_SETTINGS" && ! -L "$CLAUDE_SETTINGS" ]]; then
+    skip "claudecode: no settings file at $CLAUDE_SETTINGS"
+    return 0
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    err "claudecode: jq required for --status"
+    return 1
+  fi
+
+  local settings_path
+  settings_path=$(resolve_claude_settings)
+  if [[ ! -f "$settings_path" ]]; then
+    warn "claudecode: settings symlink dangling at $CLAUDE_SETTINGS -> $settings_path"
+    return 1
+  fi
+
+  # Collect every hook command that ends with our basename. Empty if none.
+  local lines
+  lines=$(jq -r --arg basename "$CLAUDECODE_HOOK_BASENAME" '
+    .hooks // {} | to_entries[] |
+    .key as $event |
+    (.value // [])[] |
+    (.hooks // [])[] |
+    select(.command | endswith("/" + $basename)) |
+    [$event, .command] | @tsv
+  ' "$settings_path" 2>/dev/null)
+
+  if [[ -z "$lines" ]]; then
+    skip "claudecode: no tpm-status hooks registered"
+    return 0
+  fi
+
+  # Group by install-root (strip /integrations/<basename> off each command).
+  local -A roots
+  local event cmd root
+  while IFS=$'\t' read -r event cmd; do
+    [[ -z "$cmd" ]] && continue
+    # Trim `/integrations/<basename>` suffix to get the install root.
+    root="${cmd%/integrations/$CLAUDECODE_HOOK_BASENAME}"
+    roots["$root"]+="${event},"
+  done <<< "$lines"
+
+  for root in "${!roots[@]}"; do
+    local events="${roots[$root]%,}"
+    if [[ -x "$root/integrations/$CLAUDECODE_HOOK_BASENAME" ]]; then
+      ok "claudecode: $root  ($events)"
+    else
+      warn "claudecode: $root  ($events) — script MISSING"
+    fi
+  done
+}
+
+# ============================================================================
+# Relocate: rewrite paths to point at a new install root
+# ============================================================================
+
+# Validate that a candidate install root actually contains our integration
+# scripts. Prints the resolved absolute path on success.
+_validate_relocate_target() {
+  local candidate="$1"
+  if [[ ! -d "$candidate" ]]; then
+    err "relocate: target directory does not exist: $candidate"
+    return 1
+  fi
+  local abs
+  abs=$(cd "$candidate" && pwd)
+  if [[ ! -f "$abs/integrations/$OPENCODE_PLUGIN_BASENAME" ]]; then
+    err "relocate: missing $abs/integrations/$OPENCODE_PLUGIN_BASENAME"
+    return 1
+  fi
+  if [[ ! -x "$abs/integrations/$CLAUDECODE_HOOK_BASENAME" ]]; then
+    err "relocate: missing/executable-bit-off $abs/integrations/$CLAUDECODE_HOOK_BASENAME"
+    return 1
+  fi
+  printf '%s\n' "$abs"
+}
+
+relocate_opencode() {
+  local new_root="$1"
+  local new_target="$new_root/integrations/$OPENCODE_PLUGIN_BASENAME"
+
+  if [[ ! -L "$OPENCODE_PLUGIN_DEST" ]]; then
+    if [[ -e "$OPENCODE_PLUGIN_DEST" ]]; then
+      warn "opencode: $OPENCODE_PLUGIN_DEST is not a symlink; leaving alone"
+    else
+      skip "opencode: nothing to relocate"
+    fi
+    return 0
+  fi
+
+  local current
+  current=$(readlink "$OPENCODE_PLUGIN_DEST")
+  if [[ "$current" == "$new_target" ]]; then
+    skip "opencode: symlink already points at $new_target"
+    return 0
+  fi
+
+  if [[ "$(basename "$current")" != "$OPENCODE_PLUGIN_BASENAME" ]]; then
+    warn "opencode: symlink points at an unrelated target ($current), leaving alone"
+    return 0
+  fi
+
+  do_or_dry ln -sfn "$new_target" "$OPENCODE_PLUGIN_DEST"
+  (( DRY_RUN )) || ok "opencode: symlink relocated: $current -> $new_target"
+}
+
+relocate_claudecode() {
+  local new_root="$1"
+  local new_cmd="$new_root/integrations/$CLAUDECODE_HOOK_BASENAME"
+
+  if [[ ! -f "$CLAUDE_SETTINGS" && ! -L "$CLAUDE_SETTINGS" ]]; then
+    skip "claudecode: no settings file, nothing to relocate"
+    return 0
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    err "claudecode: jq required for --relocate"
+    return 1
+  fi
+
+  local settings_path
+  settings_path=$(resolve_claude_settings)
+  if [[ ! -f "$settings_path" ]]; then
+    err "claudecode: settings file not found at $settings_path"
+    return 1
+  fi
+
+  # Rewrite every hook command whose path ends with our basename to the
+  # new install root. Other hook entries (peon-ping, user scripts, ...)
+  # are left untouched.
+  local jq_program
+  jq_program=$(cat <<'JQ'
+    .hooks //= {} |
+    .hooks |= with_entries(
+      .value |= map(
+        .hooks //= [] |
+        .hooks |= map(
+          if (.command | endswith("/" + $basename)) and (.command != $new_cmd)
+          then .command = $new_cmd
+          else .
+          end
+        )
+      )
+    )
+JQ
+  )
+
+  local tmp
+  tmp=$(mktemp)
+  jq --arg basename "$CLAUDECODE_HOOK_BASENAME" --arg new_cmd "$new_cmd" \
+     "$jq_program" "$settings_path" > "$tmp"
+
+  if diff -q "$settings_path" "$tmp" >/dev/null 2>&1; then
+    skip "claudecode: all hook paths already point at $new_root"
+    rm -f "$tmp"
+    return 0
+  fi
+
+  if (( DRY_RUN )); then
+    printf '[install] \033[2m(dry-run) would rewrite CC hook paths -> %s\033[0m\n' "$new_cmd"
+    # Enumerate which paths would change.
+    local before after
+    before=$(jq -r --arg basename "$CLAUDECODE_HOOK_BASENAME" '
+      [ .hooks // {} | to_entries[] | (.value // [])[] | (.hooks // [])[] |
+        select(.command | endswith("/" + $basename)) | .command ] | unique | .[]
+    ' "$settings_path" 2>/dev/null)
+    after=$(jq -r --arg basename "$CLAUDECODE_HOOK_BASENAME" '
+      [ .hooks // {} | to_entries[] | (.value // [])[] | (.hooks // [])[] |
+        select(.command | endswith("/" + $basename)) | .command ] | unique | .[]
+    ' "$tmp" 2>/dev/null)
+    printf '[install] \033[2m  before:\033[0m\n'
+    printf '%s\n' "$before" | sed 's/^/[install]     /'
+    printf '[install] \033[2m  after:\033[0m\n'
+    printf '%s\n' "$after"  | sed 's/^/[install]     /'
+    rm -f "$tmp"
+    return 0
+  fi
+
+  local ts
+  ts=$(date +%s)
+  local backup="$settings_path.tpm-relocate.$ts.bak"
+  cp "$settings_path" "$backup"
+  mv "$tmp" "$settings_path"
+  ok "claudecode: hook paths relocated to $new_root (backup: $backup)"
+}
+
+# ============================================================================
 # Driver
 # ============================================================================
 
@@ -400,9 +650,39 @@ main() {
   info "  scripts:  $INSTALL_DIR"
   if (( DRY_RUN )); then info "  mode:     DRY RUN (no changes)"; fi
 
+  # --- Read-only status mode ---
+  if (( STATUS )); then
+    local rc=0
+    [[ -z "$ONLY" || "$ONLY" == "opencode"   ]] && { status_opencode   || rc=$?; }
+    [[ -z "$ONLY" || "$ONLY" == "claudecode" ]] && { status_claudecode || rc=$?; }
+    return $rc
+  fi
+
+  # --- Relocate mode ---
+  if [[ -n "$RELOCATE_TO" ]]; then
+    local new_root
+    new_root=$(_validate_relocate_target "$RELOCATE_TO") || return 2
+    info "  relocate: -> $new_root"
+    local rc=0
+    [[ -z "$ONLY" || "$ONLY" == "opencode"   ]] && { relocate_opencode "$new_root"   || rc=$?; }
+    [[ -z "$ONLY" || "$ONLY" == "claudecode" ]] && { relocate_claudecode "$new_root" || rc=$?; }
+    if (( rc == 0 )); then
+      if (( DRY_RUN )); then
+        info "dry-run complete"
+      else
+        info "relocate complete"
+        info "  restart running opencode/claude sessions to pick up the new paths"
+      fi
+    else
+      err "relocate finished with errors (rc=$rc)"
+    fi
+    return $rc
+  fi
+
   # Warn (loudly) when we're wiring hooks to a working checkout instead of
   # the tpm-installed path. Absolute paths from a dev clone break the
-  # moment the checkout is moved or removed.
+  # moment the checkout is moved or removed. Skipped for status/relocate
+  # (those don't create new pins).
   if [[ -d "$TPM_STANDARD_PATH" && "$REPO_DIR" != "$TPM_STANDARD_PATH" ]]; then
     warn "you are running install.sh from a dev checkout ($REPO_DIR)"
     warn "hooks/plugins will point at that path, which is fragile"
