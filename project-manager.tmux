@@ -33,6 +33,8 @@ default_next_key="}"
 default_cycle_no_prefix="off"
 default_carousel_key="M-g"
 default_carousel_no_prefix="on"
+default_dashboard_key="M-o"
+default_dashboard_no_prefix="on"
 
 # --- Read tmux options (with defaults) ---
 get_opt() {
@@ -50,6 +52,8 @@ next_key=$(get_opt "@tpm-next-key" "$default_next_key")
 cycle_no_prefix=$(get_opt "@tpm-cycle-no-prefix" "$default_cycle_no_prefix")
 carousel_key=$(get_opt "@tpm-carousel-key" "$default_carousel_key")
 carousel_no_prefix=$(get_opt "@tpm-carousel-no-prefix" "$default_carousel_no_prefix")
+dashboard_key=$(get_opt "@tpm-dashboard-key" "$default_dashboard_key")
+dashboard_no_prefix=$(get_opt "@tpm-dashboard-no-prefix" "$default_dashboard_no_prefix")
 
 # --- Export config for scripts ---
 tmux set-environment -g TPM_PROJECTS_FILE "$projects_file"
@@ -82,6 +86,15 @@ if [[ "$carousel_no_prefix" == "on" ]]; then
   tmux bind-key -n "$carousel_key" run-shell -b "$SCRIPTS_DIR/carousel.sh"
 else
   tmux bind-key "$carousel_key" run-shell -b "$SCRIPTS_DIR/carousel.sh"
+fi
+
+# Dashboard: fzf overview of every Claude + OpenCode session across projects.
+# 'o' for "overview" — chosen to avoid the M-p/M-P collision that Shift-P
+# would create. Defaults to no-prefix M-o.
+if [[ "$dashboard_no_prefix" == "on" ]]; then
+  tmux bind-key -n "$dashboard_key" run-shell -b "$SCRIPTS_DIR/dashboard.sh"
+else
+  tmux bind-key "$dashboard_key" run-shell -b "$SCRIPTS_DIR/dashboard.sh"
 fi
 
 # --- Status bar format variable ---

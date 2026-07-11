@@ -139,6 +139,28 @@ tpm scripts store per-source options (`@tpm-agent-status-opencode-<id>`,
 `@tpm-agent-status-claudecode-<id>`) and pick the highest-priority state
 across all of them.
 
+## Resume hooks (`*-tpm-resume.sh`)
+
+Separate from the status adapters. The dashboard (`M-o`, see
+[../docs/dashboard.md](../docs/dashboard.md)) dispatches Enter on a
+detached row to `integrations/<agent>-tpm-resume.sh`. Each hook decides
+how to route the user for that agent — Claude Code opens a new window per
+resumed session; OpenCode navigates to the project's existing OpenCode
+presence.
+
+**Contract:**
+
+- **argv**: `<session_id> <project_key> <project_path> <tmux_session_name>`
+  The last argument may be empty if the project has no managed tmux
+  session yet.
+- **env**: `TPM_WINDOW_TOOL`, `TPM_WINDOW_EDITOR` exported by the caller.
+- **exit 0** on success. Non-zero causes the dashboard to surface a
+  `tmux display-message` with a generic failure notice.
+
+Adding an agent = one more `<agent>-tpm-resume.sh` alongside the status
+adapter; no dashboard changes needed. Users can shadow the shipped hooks
+by dropping their own file at the same path.
+
 ## Post-install
 
 Restart running `opencode` / `claude` sessions to pick up the new hook.

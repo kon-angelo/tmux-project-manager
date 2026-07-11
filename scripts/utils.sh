@@ -543,3 +543,60 @@ get_lru_timestamp() {
     printf '0\n'
   fi
 }
+
+# --- Dashboard helpers ---
+#
+# Small primitives shared between dashboard.sh, its preview, and the
+# integrations/*-tpm-resume.sh hooks. The dashboard itself owns the enumeration
+# logic; anything reusable across scripts (time formatting, pane index, stat
+# portability) lives here.
+
+TPM_CLAUDE_DIR="${TPM_CLAUDE_DIR:-$HOME/.claude}"
+TPM_OPENCODE_DB="${TPM_OPENCODE_DB:-$HOME/.local/share/opencode/opencode.db}"
+TPM_DASHBOARD_CUTOFF_DAYS="${TPM_DASHBOARD_CUTOFF_DAYS:-7}"
+
+# Current epoch in milliseconds.
+tpm_now_ms() {
+  printf '%s\n' "$(($(date +%s) * 1000))"
+}
+
+# Human-readable age from an epoch-ms timestamp: "3s", "12m", "2h", "1d".
+tpm_ms_since() {
+  local ms="${1:-0}" now diff
+  now=$(($(date +%s) * 1000))
+  diff=$(( (now - ms) / 1000 ))
+  (( diff < 0 )) && diff=0
+  if   (( diff < 60 ));    then printf '%ds\n' "$diff"
+  elif (( diff < 3600 ));  then printf '%dm\n' "$((diff / 60))"
+  elif (( diff < 86400 )); then printf '%dh\n' "$((diff / 3600))"
+  else                          printf '%dd\n' "$((diff / 86400))"
+  fi
+}
+
+# Portable file mtime in epoch seconds. Handles the GNU-coreutils-in-PATH case
+# that tripped the PoC: `stat -f '%m'` means "filesystem info" on GNU stat,
+# not format. On macOS force /usr/bin/stat; elsewhere use GNU `stat -c '%Y'`.
+tpm_stat_mtime() {
+  local f="$1"
+  if [[ "$OSTYPE" == darwin* ]] && [[ -x /usr/bin/stat ]]; then
+    /usr/bin/stat -f '%m' "$f" 2>/dev/null
+  else
+    stat -c '%Y' "$f" 2>/dev/null
+  fi
+}
+
+# Emit one line per tmux pane, augmented with the pane's direct children so
+# callers can match agents that run as a child of the shell (Claude Code).
+# Format: session|win.pane|pane_pid|pane_current_command|pane_current_path|child_pids_space_sep
+list_agent_panes() {
+  command -v tmux >/dev/null 2>&1 || return 0
+  tmux info >/dev/null 2>&1 || return 0
+  local sess loc ppid cmd cpath children
+  while IFS='|' read -r sess loc ppid cmd cpath; do
+    [[ -z "$ppid" ]] && continue
+    children="$(pgrep -P "$ppid" 2>/dev/null | tr '\n' ' ')"
+    printf '%s|%s|%s|%s|%s|%s\n' "$sess" "$loc" "$ppid" "$cmd" "$cpath" "${children% }"
+  done < <(tmux list-panes -a -F \
+    '#{session_name}|#{window_index}.#{pane_index}|#{pane_pid}|#{pane_current_command}|#{pane_current_path}' \
+    2>/dev/null)
+}

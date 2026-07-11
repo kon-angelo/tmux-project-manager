@@ -9,6 +9,7 @@ Manage project sessions in tmux. One session per project, with dedicated windows
 - **Current project detection**: highlights your active project via longest-path match
 - **Session cycling** (`prefix {` / `prefix }`): navigate between project sessions (skips ad-hoc sessions)
 - **Window carousel** (`M-g`): cycle within a project session: claude → editor → last shell
+- **Agent dashboard** (`M-o`): fzf overview of every Claude + OpenCode session across projects, live and detached, with real-time status (see [docs/dashboard.md](docs/dashboard.md))
 - **Filter toggle**: switch between all projects and running-only view
 - **Status bar**: exposes `#{@project-name}` for your tmux status line
 - **Agent status badges**: picker renders a coloured glyph per project when an AI agent inside the session needs attention (see [docs/agent-status.md](docs/agent-status.md) and [integrations/](integrations/))
@@ -81,6 +82,8 @@ set -g @tpm-next-key "}"
 set -g @tpm-cycle-no-prefix "off"
 set -g @tpm-carousel-key "M-g"
 set -g @tpm-carousel-no-prefix "on"
+set -g @tpm-dashboard-key "M-o"
+set -g @tpm-dashboard-no-prefix "on"
 ```
 
 ## Keybinds
@@ -90,6 +93,7 @@ set -g @tpm-carousel-no-prefix "on"
 | Key | Action |
 |-----|--------|
 | `M-p` | Open project picker (no prefix) |
+| `M-o` | Open agent-session dashboard (no prefix) |
 | `prefix {` | Switch to previous project session |
 | `prefix }` | Switch to next project session |
 | `M-g` | Carousel: cycle through claude → editor → last shell within the current project session |
