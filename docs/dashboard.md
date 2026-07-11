@@ -80,7 +80,7 @@ via environment). Older sessions are silently skipped.
 |----------|--------------------------------------------------------------|
 | `enter`  | On a **live** row: `switch-client` to that pane. On a **detached** row: dispatch to `integrations/<agent>-tpm-resume.sh`. |
 | `ctrl-r` | Refresh — re-query every source and rebuild the list.        |
-| `ctrl-a` | Acknowledge `done` state on the row's tmux session (same as focusing it). |
+| `ctrl-a` | Acknowledge `done` state on **this row's agent session** (row-scoped — clears only this session's per-source entry, unlike focus-based ack which folds every done in the tmux session at once). No-op with a message if the row isn't currently in `done`. |
 | `esc`    | Close the popup.                                             |
 
 ### Detached-row resume behaviour

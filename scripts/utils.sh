@@ -497,6 +497,24 @@ acknowledge_agent_status() {
   fi
 }
 
+# Row-scoped ack. Clears a specific per-source `done` marker if — and only
+# if — its current state is `done`. Returns 0 on clear, 1 otherwise (with
+# the option left untouched). Used by the dashboard's ctrl-a which operates
+# at agent-session granularity, unlike acknowledge_agent_status which folds
+# every done in the tmux session at once (that variant is right for
+# focus-driven ack, where the human has physically seen the whole session).
+acknowledge_agent_source() {
+  local session_name="$1" source="$2" id="$3"
+  [[ -z "$session_name" || -z "$source" || -z "$id" ]] && return 1
+  local key="${TPM_AGENT_STATUS_PREFIX}${source}-${id}"
+  local current
+  current=$(tmux show-option -t "=$session_name:" -qv "$key" 2>/dev/null)
+  [[ "$current" != "done" ]] && return 1
+  tmux set-option -t "=$session_name:" -u "$key" 2>/dev/null || true
+  recompute_agent_status "$session_name"
+  return 0
+}
+
 # --- Tmux helpers ---
 
 tmux_base_index() {

@@ -433,12 +433,23 @@ case "$action_key" in
     ;;
 
   ctrl-a)
-    # Acknowledge `done` state on the row's tmux session (if any).
-    if [[ -n "$r_tmux_sess" && "$r_tmux_sess" != "-" ]]; then
-      acknowledge_agent_status "$r_tmux_sess"
-      tmux display-message "tpm: acknowledged '$r_tmux_sess'"
-    else
+    # Row-scoped ack: clear this specific agent-session's `done` marker,
+    # not every done in the tmux session. Dashboard rows carry the agent
+    # display name (claude/opencode); the tmux option namespace uses the
+    # source name (claudecode/opencode).
+    if [[ -z "$r_tmux_sess" || "$r_tmux_sess" == "-" ]]; then
       tmux display-message "tpm: no tmux session to acknowledge for this row"
+    else
+      case "$r_agent" in
+        claude)   src="claudecode" ;;
+        opencode) src="opencode"   ;;
+        *)        src="$r_agent"   ;;
+      esac
+      if acknowledge_agent_source "$r_tmux_sess" "$src" "$r_sess_id"; then
+        tmux display-message "tpm: ack'd $r_agent session (${r_sess_id:0:12}…)"
+      else
+        tmux display-message "tpm: row not in 'done' state (currently: $r_state)"
+      fi
     fi
     ;;
 
