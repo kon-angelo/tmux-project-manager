@@ -23,6 +23,14 @@ INTEGRATIONS_DIR="$(cd "$CURRENT_DIR/../integrations" && pwd)"
 # shellcheck source=utils.sh
 source "$CURRENT_DIR/utils.sh"
 
+# The dashboard is a tmux-native UI: it opens a popup, reads session options,
+# and dispatches switch-client. Running it outside a tmux session produces
+# cryptic failures — guard early with a clear message.
+if ! tmux info >/dev/null 2>&1; then
+  echo "tpm: dashboard must be invoked from inside a tmux session" >&2
+  exit 1
+fi
+
 if ! validate_projects_file; then
   tmux display-message "tpm: invalid projects file (see stderr)"
   exit 1
@@ -338,7 +346,17 @@ render_rows() {
     age_hr=$(tpm_ms_since "$age_ms")
 
     if [[ "$flag" == "detached" ]]; then
-      loc_display="detached"
+      # OpenCode detached rows can't be automatically resumed to the exact
+      # session (see docs/dashboard-future-work.md) — the ↪ prefix cues that
+      # the user must manually attach if they want to interact with this
+      # specific session, in addition to whatever state badge shows.
+      # Claude detached rows are auto-resumed by claudecode-tpm-resume.sh via
+      # `claude --resume`, so no attach hint is needed there.
+      if [[ "$agent" == "opencode" ]]; then
+        loc_display="↪ detached"
+      else
+        loc_display="detached"
+      fi
     elif [[ "$loc" == "-" || -z "$loc" ]]; then
       loc_display="live"
     else
@@ -373,12 +391,60 @@ render_rows() {
 }
 
 # ─── Assemble list ──────────────────────────────────────────────────────────
+#
+# Wrapped in a function so the fzf popup can invoke this script recursively
+# with `--list` to regenerate the row set on reload (ctrl-r, or post-ack).
+# All source enumeration happens per call — cheap enough to run on every
+# reload (SQLite reads are indexed; ~/.claude fs walks are bounded).
 
-{
-  collect_claude_live
-  collect_claude_detached
-  collect_opencode
-} | render_rows | sort -t$'\t' -k1,1 -k2,2 -s | cut -f3- > "$list_file"
+emit_rows() {
+  {
+    collect_claude_live
+    collect_claude_detached
+    collect_opencode
+  } | render_rows | sort -t$'\t' -k1,1 -k2,2 -s | cut -f3-
+}
+
+# ─── Subcommand dispatch ────────────────────────────────────────────────────
+#
+# Runs after all functions and phase-1 index-building have completed so both
+# --list and --ack see the same tmux/process state the popup dispatch would.
+#
+#   --list                          emit fresh rows to stdout; used as fzf's
+#                                   initial input and its reload command.
+#   --ack <agent> <sess_id> <sess>  clear the row's `done` marker if any and
+#                                   emit a tmux notice. No-op if not `done`.
+
+case "${1:-}" in
+  --list)
+    emit_rows
+    exit 0
+    ;;
+  --ack)
+    _agent="${2:-}"
+    _sess_id="${3:-}"
+    _tmux_sess="${4:-}"
+    if [[ -z "$_tmux_sess" || "$_tmux_sess" == "-" ]]; then
+      tmux display-message "tpm: no tmux session to acknowledge for this row"
+      exit 0
+    fi
+    case "$_agent" in
+      claude)   _src="claudecode" ;;
+      opencode) _src="opencode"   ;;
+      *)        _src="$_agent"    ;;
+    esac
+    if acknowledge_agent_source "$_tmux_sess" "$_src" "$_sess_id"; then
+      tmux display-message "tpm: ack'd $_agent session (${_sess_id:0:12}…)"
+    else
+      tmux display-message "tpm: row not in 'done' state"
+    fi
+    exit 0
+    ;;
+esac
+
+# ─── Normal (interactive) flow ──────────────────────────────────────────────
+
+emit_rows > "$list_file"
 
 if [[ ! -s "$list_file" ]]; then
   tmux display-message "tpm: dashboard: no agent sessions in the last ${TPM_DASHBOARD_CUTOFF_DAYS}d"
@@ -391,8 +457,12 @@ header="Agent sessions [${TPM_DASHBOARD_CUTOFF_DAYS}d]  enter:jump  ^r:refresh  
 
 rm -f "$result_file"
 
-# --with-nth=12 shows only the display column; the other fields ride along for
-# dispatch after fzf returns. Preview receives all fields (delimiter=\t).
+# ctrl-r and ctrl-a are handled inside the fzf loop via `reload` — the popup
+# stays open, only the row set updates. Only enter (empty --expect) closes
+# the popup and hands off to the post-fzf dispatch.
+#
+# ctrl-a passes {2}={agent} {3}={session_id} {7}={tmux_sess} to --ack; those
+# indexes match the TSV column order emitted by emit_rows.
 tmux display-popup -w 95% -h 85% -E "
   cat '$list_file' | \
   fzf \
@@ -406,18 +476,16 @@ tmux display-popup -w 95% -h 85% -E "
     --color='pointer:green,fg+:green,bg+:-1' \
     --preview='$CURRENT_DIR/dashboard-preview.sh {2} {3} {5}' \
     --preview-window='right:50%:wrap' \
-    --expect='ctrl-r,ctrl-a' \
+    --bind='ctrl-r:reload($CURRENT_DIR/dashboard.sh --list)+refresh-preview' \
+    --bind='ctrl-a:execute-silent($CURRENT_DIR/dashboard.sh --ack {2} {3} {7})+reload($CURRENT_DIR/dashboard.sh --list)+refresh-preview' \
     --no-sort \
     --reverse \
     > '$result_file'
 " 2>/dev/null || true
 
 [[ ! -s "$result_file" ]] && exit 0
-selection=$(<"$result_file")
+selected_line=$(<"$result_file")
 rm -f "$result_file"
-
-action_key=$(printf '%s\n' "$selection" | sed -n '1p')
-selected_line=$(printf '%s\n' "$selection" | sed -n '2p')
 [[ -z "$selected_line" ]] && exit 0
 
 # Extract row fields.
@@ -425,65 +493,36 @@ IFS=$'\t' read -r r_state r_agent r_sess_id r_project_key r_cwd r_title \
                   r_tmux_sess r_loc r_age r_pid r_flag _rest \
                   <<< "$selected_line"
 
-# ─── Dispatch ───────────────────────────────────────────────────────────────
+# ─── Dispatch (enter only) ──────────────────────────────────────────────────
+#
+# ctrl-r and ctrl-a never reach here anymore — they're handled inside fzf.
+# The only reason we're past the popup is that the user pressed enter on a
+# row (or hit esc, which is filtered above by the empty-file check).
 
-case "$action_key" in
-  ctrl-r)
-    exec "$CURRENT_DIR/dashboard.sh"
-    ;;
-
-  ctrl-a)
-    # Row-scoped ack: clear this specific agent-session's `done` marker,
-    # not every done in the tmux session. Dashboard rows carry the agent
-    # display name (claude/opencode); the tmux option namespace uses the
-    # source name (claudecode/opencode).
-    if [[ -z "$r_tmux_sess" || "$r_tmux_sess" == "-" ]]; then
-      tmux display-message "tpm: no tmux session to acknowledge for this row"
-    else
-      case "$r_agent" in
-        claude)   src="claudecode" ;;
-        opencode) src="opencode"   ;;
-        *)        src="$r_agent"   ;;
-      esac
-      if acknowledge_agent_source "$r_tmux_sess" "$src" "$r_sess_id"; then
-        tmux display-message "tpm: ack'd $r_agent session (${r_sess_id:0:12}…)"
-      else
-        tmux display-message "tpm: row not in 'done' state (currently: $r_state)"
-      fi
+if [[ "$r_flag" == "live" ]]; then
+  # Jump to the pane hosting this agent.
+  if [[ -n "$r_tmux_sess" && "$r_tmux_sess" != "-" ]]; then
+    tmux switch-client -t "=$r_tmux_sess"
+    if [[ -n "$r_loc" && "$r_loc" != "-" ]]; then
+      # r_loc is "win.pane" — select-window by index is enough; the
+      # in-window pane is left as-is (usual convention for agent panes).
+      tmux select-window -t "=${r_tmux_sess}:${r_loc%.*}" 2>/dev/null || true
     fi
-    ;;
-
-  *)
-    # Default (Enter).
-    if [[ "$r_flag" == "live" ]]; then
-      # Jump to the pane hosting this agent.
-      if [[ -n "$r_tmux_sess" && "$r_tmux_sess" != "-" ]]; then
-        tmux switch-client -t "=$r_tmux_sess"
-        if [[ -n "$r_loc" && "$r_loc" != "-" ]]; then
-          # r_loc is "win.pane" — select-window by index is enough; the
-          # in-window pane is left as-is (usual convention for agent panes).
-          tmux select-window -t "=${r_tmux_sess}:${r_loc%.*}" 2>/dev/null || true
-        fi
-      else
-        tmux display-message "tpm: live row has no tmux location; refresh?"
-      fi
-    else
-      # Detached row: dispatch to the per-agent resume hook.
-      hook="$INTEGRATIONS_DIR/${r_agent}code-tpm-resume.sh"
-      # The hook file names use the internal source name (claudecode /
-      # opencode), so `opencode` maps to opencode-tpm-resume.sh not
-      # opencodecode-tpm-resume.sh.
-      case "$r_agent" in
-        claude)   hook="$INTEGRATIONS_DIR/claudecode-tpm-resume.sh" ;;
-        opencode) hook="$INTEGRATIONS_DIR/opencode-tpm-resume.sh" ;;
-      esac
-      if [[ ! -x "$hook" ]]; then
-        tmux display-message "tpm: dashboard: resume hook missing: $(basename "$hook")"
-        exit 1
-      fi
-      TPM_WINDOW_TOOL="$TPM_WINDOW_TOOL" TPM_WINDOW_EDITOR="$TPM_WINDOW_EDITOR" \
-        "$hook" "$r_sess_id" "$r_project_key" "$r_cwd" "$r_tmux_sess" \
-        || tmux display-message "tpm: resume hook '$r_agent' failed (see stderr)"
-    fi
-    ;;
-esac
+  else
+    tmux display-message "tpm: live row has no tmux location; refresh?"
+  fi
+else
+  # Detached row: dispatch to the per-agent resume hook.
+  case "$r_agent" in
+    claude)   hook="$INTEGRATIONS_DIR/claudecode-tpm-resume.sh" ;;
+    opencode) hook="$INTEGRATIONS_DIR/opencode-tpm-resume.sh"   ;;
+    *)        hook="" ;;
+  esac
+  if [[ -z "$hook" || ! -x "$hook" ]]; then
+    tmux display-message "tpm: dashboard: resume hook missing for '$r_agent'"
+    exit 1
+  fi
+  TPM_WINDOW_TOOL="$TPM_WINDOW_TOOL" TPM_WINDOW_EDITOR="$TPM_WINDOW_EDITOR" \
+    "$hook" "$r_sess_id" "$r_project_key" "$r_cwd" "$r_tmux_sess" \
+    || tmux display-message "tpm: resume hook '$r_agent' failed (see stderr)"
+fi

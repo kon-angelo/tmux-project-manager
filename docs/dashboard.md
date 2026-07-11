@@ -123,15 +123,22 @@ TPM_OPENCODE_DB=~/.local/share/opencode/opencode.db
 
 ## Known limitations (v1)
 
+See [dashboard-future-work.md](./dashboard-future-work.md) for the full
+findings and v2 candidates. In brief:
+
+- **OpenCode detached rows cannot answer pending prompts.** The
+  interactive control that would answer a stored `needs-input` state
+  died with the original process. Detached OpenCode rows show a `↪`
+  glyph in the location column to indicate "attach yourself manually if
+  you want to see the specific session" — but note that even manually
+  attaching won't re-render outstanding interactive controls.
 - **OpenCode session disambiguation** — one OpenCode process hosts many
   sessions but tmux only knows about the process. When multiple sessions
   share the same running process, all show the same tmux location. State
   is still correct (from `@tpm-agent-status-opencode-<id>`); location is
   best-effort.
-- **In-place OpenCode resume** — not attempted; see the resume-behaviour
-  section above. A future extension of the OpenCode plugin API could
-  publish a "focused session" event that would let the dashboard route to
-  the exact session.
+- **In-place OpenCode resume** — not attempted; we route to project
+  presence instead. Same reasoning as above.
 - **`ctrl-x` kill** — deliberately omitted. Killing an OpenCode process
   affects every session that process owns, which contradicts the
   row-level abstraction. Use `tmux kill-pane` manually if needed.
