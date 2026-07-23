@@ -98,9 +98,10 @@ bind-key -n M-p run-shell -b "~/.tmux/plugins/tmux-project-manager/scripts/picke
 bind-key -n M-o run-shell -b "~/.tmux/plugins/tmux-project-manager/scripts/dashboard.sh"
 bind-key -n M-g run-shell -b "~/.tmux/plugins/tmux-project-manager/scripts/carousel.sh"
 
-# Cycle prev/next project session (prefix table)
-bind-key { run-shell -b "~/.tmux/plugins/tmux-project-manager/scripts/cycle.sh prev"
-bind-key } run-shell -b "~/.tmux/plugins/tmux-project-manager/scripts/cycle.sh next"
+# Cycle prev/next project session (prefix table).
+# Braces must be quoted — tmux parses bare { } as command-group delimiters.
+bind-key "{" run-shell -b "~/.tmux/plugins/tmux-project-manager/scripts/cycle.sh prev"
+bind-key "}" run-shell -b "~/.tmux/plugins/tmux-project-manager/scripts/cycle.sh next"
 ```
 
 Key-choice notes if you're picking something else:
