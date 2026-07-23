@@ -173,7 +173,7 @@ if [[ ! -s "$list_file" ]]; then
   exit 0
 fi
 
-header="Projects [$filter|$sort_mode|$search_mode]  enter:switch  alt-1..9:quick  M-a:search  M-s:sort  M-r:repair  M-x:kill  M-n:shell  M-e:editor  M-f:filter"
+header="Projects [$filter|$sort_mode|$search_mode]  enter:switch  alt-1..9:quick  M-a:search  M-s:sort  M-r:repair  M-x:kill  M-n:shell  M-e:editor  M-u:filter"
 
 # --- Run fzf inside a tmux popup and capture the result via a file ---
 # We can't reliably capture fzf's stdout through `$(tmux display-popup -E ...)`,
@@ -220,7 +220,7 @@ tmux display-popup -w 90% -h 80% -E "
     --color='pointer:green,fg+:green,bg+:-1' \
     --preview='$CURRENT_DIR/preview.sh {1}' \
     --preview-window='down:50%:wrap' \
-    --expect='alt-a,alt-r,alt-x,alt-n,alt-e,alt-f,alt-s' \
+    --expect='alt-a,alt-r,alt-x,alt-n,alt-e,alt-u,alt-s' \
     --bind='alt-1:pos(1)+accept' \
     --bind='alt-2:pos(2)+accept' \
     --bind='alt-3:pos(3)+accept' \
@@ -277,7 +277,7 @@ case "$action_key" in
     exec "$CURRENT_DIR/picker.sh"
     ;;
 
-  alt-f)
+  alt-u)
     if [[ "$filter" == "all" ]]; then
       printf 'running' > "$state_file"
     else

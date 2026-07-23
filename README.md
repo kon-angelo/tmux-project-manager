@@ -127,7 +127,7 @@ Key-choice notes if you're picking something else:
 | `alt-x` | Kill project session |
 | `alt-n` | Add a new shell window |
 | `alt-e` | Ensure editor window exists |
-| `alt-f` | Toggle filter: all / running only |
+| `alt-u` | Toggle filter: all / running only |
 
 ## Session Layout
 
