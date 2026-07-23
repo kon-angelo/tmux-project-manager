@@ -499,7 +499,7 @@ acknowledge_agent_status() {
 
 # Row-scoped ack. Clears a specific per-source `done` marker if — and only
 # if — its current state is `done`. Returns 0 on clear, 1 otherwise (with
-# the option left untouched). Used by the dashboard's ctrl-a which operates
+# the option left untouched). Used by the dashboard's alt-a which operates
 # at agent-session granularity, unlike acknowledge_agent_status which folds
 # every done in the tmux session at once (that variant is right for
 # focus-driven ack, where the human has physically seen the whole session).

@@ -83,8 +83,8 @@ via environment). Older sessions are silently skipped.
 | Key      | Behaviour                                                    |
 |----------|--------------------------------------------------------------|
 | `enter`  | On a **live** row: `switch-client` to that pane. On a **detached** row: dispatch to `integrations/<agent>-tpm-resume.sh`. |
-| `ctrl-r` | Refresh — re-query every source and rebuild the list.        |
-| `ctrl-a` | Acknowledge `done` state on **this row's agent session** (row-scoped — clears only this session's per-source entry, unlike focus-based ack which folds every done in the tmux session at once). No-op with a message if the row isn't currently in `done`. |
+| `alt-r`  | Refresh — re-query every source and rebuild the list.        |
+| `alt-a`  | Acknowledge `done` state on **this row's agent session** (row-scoped — clears only this session's per-source entry, unlike focus-based ack which folds every done in the tmux session at once). No-op with a message if the row isn't currently in `done`. |
 | `esc`    | Close the popup.                                             |
 
 ### Detached-row resume behaviour
@@ -147,10 +147,10 @@ findings and v2 candidates. In brief:
   best-effort.
 - **In-place OpenCode resume** — not attempted; we route to project
   presence instead. Same reasoning as above.
-- **`ctrl-x` kill** — deliberately omitted. Killing an OpenCode process
+- **`M-x` kill** — deliberately omitted. Killing an OpenCode process
   affects every session that process owns, which contradicts the
   row-level abstraction. Use `tmux kill-pane` manually if needed.
-- **No auto-refresh** — the dashboard is a snapshot. `ctrl-r` to re-run.
+- **No auto-refresh** — the dashboard is a snapshot. `M-r` to re-run.
 
 ## Troubleshooting
 
@@ -173,5 +173,5 @@ tmux show-options -t "=<session>:" | grep '@tpm-agent-status'
 If empty, run `integrations/install.sh --status` and re-install.
 
 **Wrong location for OpenCode row** — this is the 1-process-N-sessions
-issue documented above. Refresh (`ctrl-r`) picks up any recent adapter
+issue documented above. Refresh (`M-r`) picks up any recent adapter
 writes that would disambiguate further.

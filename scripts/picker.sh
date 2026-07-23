@@ -6,7 +6,7 @@
 # Invoked by whatever key the user binds to scripts/picker.sh (see README →
 # Recommended bindings).
 #
-# Supports two search modes (toggled with ctrl-a inside fzf):
+# Supports two search modes (toggled with alt-a inside fzf):
 #   fuzzy  — default fzf fuzzy matching
 #   strict — exact substring matching only (alias-oriented)
 
@@ -173,7 +173,7 @@ if [[ ! -s "$list_file" ]]; then
   exit 0
 fi
 
-header="Projects [$filter|$sort_mode|$search_mode]  enter:switch  alt-1..9:quick  ^a:search  ^s:sort  ^r:repair  ^x:kill  ^n:shell  ^e:editor  ^f:filter"
+header="Projects [$filter|$sort_mode|$search_mode]  enter:switch  alt-1..9:quick  M-a:search  M-s:sort  M-r:repair  M-x:kill  M-n:shell  M-e:editor  M-f:filter"
 
 # --- Run fzf inside a tmux popup and capture the result via a file ---
 # We can't reliably capture fzf's stdout through `$(tmux display-popup -E ...)`,
@@ -220,7 +220,7 @@ tmux display-popup -w 90% -h 80% -E "
     --color='pointer:green,fg+:green,bg+:-1' \
     --preview='$CURRENT_DIR/preview.sh {1}' \
     --preview-window='down:50%:wrap' \
-    --expect='ctrl-a,ctrl-r,ctrl-x,ctrl-n,ctrl-e,ctrl-f,ctrl-s' \
+    --expect='alt-a,alt-r,alt-x,alt-n,alt-e,alt-f,alt-s' \
     --bind='alt-1:pos(1)+accept' \
     --bind='alt-2:pos(2)+accept' \
     --bind='alt-3:pos(3)+accept' \
@@ -259,7 +259,7 @@ fi
 
 # --- Dispatch ---
 case "$action_key" in
-  ctrl-a)
+  alt-a)
     if [[ "$search_mode" == "fuzzy" ]]; then
       printf 'strict' > "$search_file"
     else
@@ -268,7 +268,7 @@ case "$action_key" in
     exec "$CURRENT_DIR/picker.sh"
     ;;
 
-  ctrl-s)
+  alt-s)
     if [[ "$sort_mode" == "alpha" ]]; then
       printf 'lru' > "$sort_file"
     else
@@ -277,7 +277,7 @@ case "$action_key" in
     exec "$CURRENT_DIR/picker.sh"
     ;;
 
-  ctrl-f)
+  alt-f)
     if [[ "$filter" == "all" ]]; then
       printf 'running' > "$state_file"
     else
@@ -286,7 +286,7 @@ case "$action_key" in
     exec "$CURRENT_DIR/picker.sh"
     ;;
 
-  ctrl-r)
+  alt-r)
     if tmux has-session -t "=$selected_session" 2>/dev/null; then
       "$CURRENT_DIR/repair.sh" "$selected_session"
     else
@@ -294,7 +294,7 @@ case "$action_key" in
     fi
     ;;
 
-  ctrl-x)
+  alt-x)
     if tmux has-session -t "=$selected_session" 2>/dev/null; then
       # Guard: if killing the active session, switch away first to avoid
       # stranding the user with no attached session.
@@ -308,7 +308,7 @@ case "$action_key" in
     fi
     ;;
 
-  ctrl-n)
+  alt-n)
     if tmux has-session -t "=$selected_session" 2>/dev/null; then
       project_path=$(get_path "$selected_key")
       tmux new-window -t "=$selected_session" -n "shell" -c "$project_path"
@@ -318,7 +318,7 @@ case "$action_key" in
     fi
     ;;
 
-  ctrl-e)
+  alt-e)
     if tmux has-session -t "=$selected_session" 2>/dev/null; then
       if ! window_exists "$selected_session" "$TPM_WINDOW_EDITOR"; then
         project_path=$(get_path "$selected_key")

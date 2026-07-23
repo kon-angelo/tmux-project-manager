@@ -121,11 +121,13 @@ Key-choice notes if you're picking something else:
 |-----|--------|
 | `enter` | Switch to project (launch if not running) |
 | `alt-1` … `alt-9` | Quick-pick the Nth visible row (same effect as Enter on it) |
-| `ctrl-r` | Repair: recreate missing managed windows |
-| `ctrl-x` | Kill project session |
-| `ctrl-n` | Add a new shell window |
-| `ctrl-e` | Ensure editor window exists |
-| `ctrl-f` | Toggle filter: all / running only |
+| `alt-a` | Toggle search mode (fuzzy / strict alias-exact) |
+| `alt-s` | Toggle sort mode (alpha / lru) |
+| `alt-r` | Repair: recreate missing managed windows |
+| `alt-x` | Kill project session |
+| `alt-n` | Add a new shell window |
+| `alt-e` | Ensure editor window exists |
+| `alt-f` | Toggle filter: all / running only |
 
 ## Session Layout
 

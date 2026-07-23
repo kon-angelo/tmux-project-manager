@@ -394,7 +394,7 @@ render_rows() {
 # ─── Assemble list ──────────────────────────────────────────────────────────
 #
 # Wrapped in a function so the fzf popup can invoke this script recursively
-# with `--list` to regenerate the row set on reload (ctrl-r, or post-ack).
+# with `--list` to regenerate the row set on reload (alt-r, or post-ack).
 # All source enumeration happens per call — cheap enough to run on every
 # reload (SQLite reads are indexed; ~/.claude fs walks are bounded).
 
@@ -454,15 +454,15 @@ fi
 
 # ─── fzf UI ─────────────────────────────────────────────────────────────────
 
-header="Agent sessions [${TPM_DASHBOARD_CUTOFF_DAYS}d]  enter:jump  ^r:refresh  ^a:ack-done  esc:close"
+header="Agent sessions [${TPM_DASHBOARD_CUTOFF_DAYS}d]  enter:jump  M-r:refresh  M-a:ack-done  esc:close"
 
 rm -f "$result_file"
 
-# ctrl-r and ctrl-a are handled inside the fzf loop via `reload` — the popup
+# alt-r and alt-a are handled inside the fzf loop via `reload` — the popup
 # stays open, only the row set updates. Only enter (empty --expect) closes
 # the popup and hands off to the post-fzf dispatch.
 #
-# ctrl-a passes {2}={agent} {3}={session_id} {7}={tmux_sess} to --ack; those
+# alt-a passes {2}={agent} {3}={session_id} {7}={tmux_sess} to --ack; those
 # indexes match the TSV column order emitted by emit_rows.
 tmux display-popup -w 95% -h 85% -E "
   cat '$list_file' | \
@@ -477,8 +477,8 @@ tmux display-popup -w 95% -h 85% -E "
     --color='pointer:green,fg+:green,bg+:-1' \
     --preview='$CURRENT_DIR/dashboard-preview.sh {2} {3} {5}' \
     --preview-window='right:50%:wrap' \
-    --bind='ctrl-r:reload($CURRENT_DIR/dashboard.sh --list)+refresh-preview' \
-    --bind='ctrl-a:execute-silent($CURRENT_DIR/dashboard.sh --ack {2} {3} {7})+reload($CURRENT_DIR/dashboard.sh --list)+refresh-preview' \
+    --bind='alt-r:reload($CURRENT_DIR/dashboard.sh --list)+refresh-preview' \
+    --bind='alt-a:execute-silent($CURRENT_DIR/dashboard.sh --ack {2} {3} {7})+reload($CURRENT_DIR/dashboard.sh --list)+refresh-preview' \
     --no-sort \
     --reverse \
     > '$result_file'
@@ -496,7 +496,7 @@ IFS=$'\t' read -r r_state r_agent r_sess_id r_project_key r_cwd r_title \
 
 # ─── Dispatch (enter only) ──────────────────────────────────────────────────
 #
-# ctrl-r and ctrl-a never reach here anymore — they're handled inside fzf.
+# alt-r and alt-a never reach here anymore — they're handled inside fzf.
 # The only reason we're past the popup is that the user pressed enter on a
 # row (or hit esc, which is filtered above by the empty-file check).
 
