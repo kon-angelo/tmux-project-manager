@@ -503,10 +503,23 @@ if [[ "$r_flag" == "live" ]]; then
   # Jump to the pane hosting this agent.
   if [[ -n "$r_tmux_sess" && "$r_tmux_sess" != "-" ]]; then
     tmux switch-client -t "=$r_tmux_sess"
+    # Try the pane-derived window index first. Precise when the agent PID
+    # is reachable via `pgrep -P` from the pane's shell (direct child);
+    # it comes up short when the agent is nested deeper in the process
+    # tree or when the pane mapping is stale.
+    _switched_window=0
     if [[ -n "$r_loc" && "$r_loc" != "-" ]]; then
       # r_loc is "win.pane" — select-window by index is enough; the
       # in-window pane is left as-is (usual convention for agent panes).
-      tmux select-window -t "=${r_tmux_sess}:${r_loc%.*}" 2>/dev/null || true
+      if tmux select-window -t "=${r_tmux_sess}:${r_loc%.*}" 2>/dev/null; then
+        _switched_window=1
+      fi
+    fi
+    # Fallback: select the managed tool window by name. Every tpm-launched
+    # session has a window named "$TPM_WINDOW_TOOL" hosting the agent, so
+    # this is a reliable landing spot when the PID→pane map came up short.
+    if [[ "$_switched_window" -eq 0 ]]; then
+      tmux select-window -t "=${r_tmux_sess}:${TPM_WINDOW_TOOL}" 2>/dev/null || true
     fi
   else
     tmux display-message "tpm: live row has no tmux location; refresh?"
