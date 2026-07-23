@@ -67,43 +67,54 @@ set -g @tpm-default-tool "opencode"
 # Default editor for window 1 (default: nvim)
 set -g @tpm-default-editor "nvim"
 
-# Keybinds (defaults shown)
-#   - Picker:    M-p (no-prefix global)
-#   - Cycle:     prefix { / prefix }  (prefix-based; shadows swap-pane,
-#                which has redundant bindings on prefix+<> and no-prefix
-#                M-HJKL. prefix+[ / prefix+] avoided to keep tmux defaults
-#                copy-mode and paste-buffer reachable.)
-#   - Carousel:  M-g (no-prefix global) — cycles claude → editor → shell
-#                inside the current project session
-set -g @tpm-picker-key "M-p"
+# Keybinds — nothing is bound by default. Opt in per action by setting the
+# key; leave empty (the default) to skip the bind entirely. Each key can be
+# routed through the root table (no-prefix, "on") or the prefix table
+# ("off") via the paired @tpm-*-no-prefix option.
+#
+# Example: everything under Alt (no-prefix) except cycle, which stays on
+# the prefix table because prefix+{ / prefix+} sit next to tmux's other
+# window ops.
+set -g @tpm-picker-key    "M-p"    # project picker
 set -g @tpm-picker-no-prefix "on"
-set -g @tpm-prev-key "{"
-set -g @tpm-next-key "}"
-set -g @tpm-cycle-no-prefix "off"
-set -g @tpm-carousel-key "M-g"
-set -g @tpm-carousel-no-prefix "on"
-set -g @tpm-dashboard-key "M-o"
+set -g @tpm-dashboard-key "M-o"    # agent-session dashboard
 set -g @tpm-dashboard-no-prefix "on"
+set -g @tpm-carousel-key  "M-g"    # cycle claude → editor → shell in-session
+set -g @tpm-carousel-no-prefix "on"
+set -g @tpm-prev-key      "{"      # prev project session (needs @tpm-next-key too)
+set -g @tpm-next-key      "}"
+set -g @tpm-cycle-no-prefix "off"  # 'on' to route prev/next through the root table
 ```
+
+Key-choice notes if you're picking your own:
+
+- **Picker / dashboard / carousel**: no-prefix Alt combos work best. Plain
+  letters (Alt+p, Alt+g, Alt+o, Alt+t, Alt+y, …) avoid escape-sequence
+  collisions across Ghostty / iTerm / Alacritty / kitty / Linux terminals.
+- **Cycle (prev/next)**: `prefix { / prefix }` shadows swap-pane -U/-D, but
+  those have `prefix+<>` and no-prefix `M-HJKL` alternatives, so the
+  collision is benign. Bare `M-[ / M-]` intercept CSI/OSC prefixes.
+  `M-{ / M-}` require Shift and behave inconsistently on macOS/Ghostty.
+  `prefix+[ / prefix+]` steal copy-mode and paste-buffer — best avoided.
 
 ## Keybinds
 
-### Default
+### Actions
 
-| Key | Action |
-|-----|--------|
-| `M-p` | Open project picker (no prefix) |
-| `M-o` | Open agent-session dashboard (no prefix) |
-| `prefix {` | Switch to previous project session |
-| `prefix }` | Switch to next project session |
-| `M-g` | Carousel: cycle through claude → editor → last shell within the current project session |
+The plugin ships **no default bindings** — set the corresponding
+`@tpm-*-key` option (see [Tmux Options](#tmux-options)) to opt in.
 
-To bind cycling to a no-prefix combo (e.g. `M-,` / `M-.`), set:
+| Action | Option | Script |
+|--------|--------|--------|
+| Project picker | `@tpm-picker-key` | `scripts/picker.sh` |
+| Agent-session dashboard | `@tpm-dashboard-key` | `scripts/dashboard.sh` |
+| Prev / next project session | `@tpm-prev-key` / `@tpm-next-key` | `scripts/cycle.sh` |
+| In-session carousel | `@tpm-carousel-key` | `scripts/carousel.sh` |
+
+You can also call any script directly, e.g. from another plugin:
 
 ```tmux
-set -g @tpm-cycle-no-prefix "on"
-set -g @tpm-prev-key "M-,"
-set -g @tpm-next-key "M-."
+bind-key -n M-y run-shell -b "~/.tmux/plugins/tmux-project-manager/scripts/picker.sh"
 ```
 
 ### Inside the Picker

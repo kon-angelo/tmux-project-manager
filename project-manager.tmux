@@ -9,31 +9,26 @@ CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_DIR="$CURRENT_DIR/scripts"
 
 # --- Option defaults ---
-# Picker: M-p as a no-prefix global key. 'p' is a plain letter so Alt+p does
-# not collide with any escape-sequence prefix and works reliably across
-# Ghostty / iTerm / Alacritty / kitty / Linux terminals.
+# No keybinds are bound by default. Installing the plugin is opt-in for
+# every action — pick your own keys via the @tpm-*-key options below.
+# Rationale: user keymaps are opinionated (Alt combos, prefix-tables,
+# terminal-specific escape sequences). Defaulting anything guarantees a
+# collision for someone; better to require an explicit choice.
 #
-# Cycle: prefix-based by default — bound to prefix+{ / prefix+}. We
-# previously tried:
-#   - bare M-[/M-] (CSI/OSC prefixes; terminals intercept them)
-#   - M-{/M-} (Alt+Shift+symbol; Ghostty/macOS handle inconsistently)
-#   - prefix+[/prefix+] (works, but shadows tmux defaults copy-mode and
-#     paste-buffer; bad for portability with stock tmux)
-# prefix+{ / prefix+} shadow swap-pane -U/-D, but those have built-in
-# alternatives (prefix+<>, plus most users no-prefix Alt+HJKL), so the
-# collision is benign. Override via @tpm-prev-key / @tpm-next-key plus
-# @tpm-cycle-no-prefix for no-prefix global cycling.
+# The @tpm-*-no-prefix options keep their behaviourally-sensible defaults
+# ('on' for popups, 'off' for cycle) because they only apply once the
+# corresponding key is set — an empty key skips the bind entirely.
 default_projects_file="$HOME/.config/projects/projects.yaml"
 default_tool="opencode"
 default_editor="nvim"
-default_picker_key="M-p"
+default_picker_key=""
 default_picker_no_prefix="on"
-default_prev_key="{"
-default_next_key="}"
+default_prev_key=""
+default_next_key=""
 default_cycle_no_prefix="off"
-default_carousel_key="M-g"
+default_carousel_key=""
 default_carousel_no_prefix="on"
-default_dashboard_key="M-o"
+default_dashboard_key=""
 default_dashboard_no_prefix="on"
 
 # --- Read tmux options (with defaults) ---
@@ -64,37 +59,45 @@ tmux set-environment -g TPM_BIN "$CURRENT_DIR/bin"
 tmux set-environment -g TPM_INTEGRATIONS_DIR "$CURRENT_DIR/integrations"
 
 # --- Bind keys ---
-# Picker: -n means root key table (no prefix). On by default.
-if [[ "$picker_no_prefix" == "on" ]]; then
-  tmux bind-key -n "$picker_key" run-shell -b "$SCRIPTS_DIR/picker.sh"
-else
-  tmux bind-key "$picker_key" run-shell -b "$SCRIPTS_DIR/picker.sh"
+# Every binding is opt-in: an empty @tpm-*-key skips the block entirely.
+# The @tpm-*-no-prefix option flips between the root and prefix key tables.
+#
+# Picker: fzf-based project switcher.
+if [[ -n "$picker_key" ]]; then
+  if [[ "$picker_no_prefix" == "on" ]]; then
+    tmux bind-key -n "$picker_key" run-shell -b "$SCRIPTS_DIR/picker.sh"
+  else
+    tmux bind-key "$picker_key" run-shell -b "$SCRIPTS_DIR/picker.sh"
+  fi
 fi
 
-# Cycle: prefix-based by default. Toggle with @tpm-cycle-no-prefix=on.
-if [[ "$cycle_no_prefix" == "on" ]]; then
-  tmux bind-key -n "$prev_key" run-shell -b "$SCRIPTS_DIR/cycle.sh prev"
-  tmux bind-key -n "$next_key" run-shell -b "$SCRIPTS_DIR/cycle.sh next"
-else
-  tmux bind-key "$prev_key" run-shell -b "$SCRIPTS_DIR/cycle.sh prev"
-  tmux bind-key "$next_key" run-shell -b "$SCRIPTS_DIR/cycle.sh next"
+# Cycle: prev/next between project sessions. Both keys must be set.
+if [[ -n "$prev_key" && -n "$next_key" ]]; then
+  if [[ "$cycle_no_prefix" == "on" ]]; then
+    tmux bind-key -n "$prev_key" run-shell -b "$SCRIPTS_DIR/cycle.sh prev"
+    tmux bind-key -n "$next_key" run-shell -b "$SCRIPTS_DIR/cycle.sh next"
+  else
+    tmux bind-key "$prev_key" run-shell -b "$SCRIPTS_DIR/cycle.sh prev"
+    tmux bind-key "$next_key" run-shell -b "$SCRIPTS_DIR/cycle.sh next"
+  fi
 fi
 
-# Carousel: cycles claude → editor → last-shell within the current project
-# session. Defaults to no-prefix M-g.
-if [[ "$carousel_no_prefix" == "on" ]]; then
-  tmux bind-key -n "$carousel_key" run-shell -b "$SCRIPTS_DIR/carousel.sh"
-else
-  tmux bind-key "$carousel_key" run-shell -b "$SCRIPTS_DIR/carousel.sh"
+# Carousel: cycles claude → editor → last-shell within the current project.
+if [[ -n "$carousel_key" ]]; then
+  if [[ "$carousel_no_prefix" == "on" ]]; then
+    tmux bind-key -n "$carousel_key" run-shell -b "$SCRIPTS_DIR/carousel.sh"
+  else
+    tmux bind-key "$carousel_key" run-shell -b "$SCRIPTS_DIR/carousel.sh"
+  fi
 fi
 
 # Dashboard: fzf overview of every Claude + OpenCode session across projects.
-# 'o' for "overview" — chosen to avoid the M-p/M-P collision that Shift-P
-# would create. Defaults to no-prefix M-o.
-if [[ "$dashboard_no_prefix" == "on" ]]; then
-  tmux bind-key -n "$dashboard_key" run-shell -b "$SCRIPTS_DIR/dashboard.sh"
-else
-  tmux bind-key "$dashboard_key" run-shell -b "$SCRIPTS_DIR/dashboard.sh"
+if [[ -n "$dashboard_key" ]]; then
+  if [[ "$dashboard_no_prefix" == "on" ]]; then
+    tmux bind-key -n "$dashboard_key" run-shell -b "$SCRIPTS_DIR/dashboard.sh"
+  else
+    tmux bind-key "$dashboard_key" run-shell -b "$SCRIPTS_DIR/dashboard.sh"
+  fi
 fi
 
 # --- Status bar format variable ---
