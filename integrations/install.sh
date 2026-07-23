@@ -710,7 +710,7 @@ main() {
       info ""
       info "next steps:"
       info "  • restart running opencode/claude sessions to pick up the plugin/hook"
-      info "  • open the tpm picker (M-p) — projects with active agents will show a badge"
+      info "  • open the tpm picker — projects with active agents will show a badge"
     fi
   else
     err "one or more integrations failed (rc=$rc)"

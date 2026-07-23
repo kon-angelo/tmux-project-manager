@@ -1,16 +1,20 @@
-# Dashboard (`M-o`)
+# Dashboard
 
 An fzf overview of every Claude Code and OpenCode session across the projects
 you have registered in `projects.yaml`, live or detached, with real-time
-status. Complementary to the picker (`M-p`):
+status. Complementary to the picker:
 
-| Feature       | Picker (`M-p`)                | Dashboard (`M-o`)                  |
-|---------------|-------------------------------|------------------------------------|
-| Unit          | One row per project           | One row per **agent session**      |
-| Live signal   | Aggregated agent status       | Per-session state + tmux location  |
-| Sources       | `projects.yaml` + tmux options| Claude JSON + OpenCode DB + tmux   |
-| History       | No                            | Detached sessions from last 7d     |
-| Default key   | `M-p`                         | `M-o`                              |
+| Feature       | Picker                         | Dashboard                          |
+|---------------|--------------------------------|------------------------------------|
+| Unit          | One row per project            | One row per **agent session**      |
+| Live signal   | Aggregated agent status        | Per-session state + tmux location  |
+| Sources       | `projects.yaml` + tmux options | Claude JSON + OpenCode DB + tmux   |
+| History       | No                             | Detached sessions from last 7d     |
+| Script        | `scripts/picker.sh`            | `scripts/dashboard.sh`             |
+
+Bind the dashboard script to whatever key you prefer — see the
+[Recommended bindings](../README.md#recommended-bindings) block for a
+copy-paste starting point.
 
 ## Row schema
 
@@ -104,13 +108,17 @@ Delegated to per-agent hook scripts under `integrations/`:
   The row's session id is displayed in the preview so it can be resumed
   manually (`/sessions` in the TUI).
 
-## Configuration
+## Binding
 
-Set in `.tmux.conf`:
+The plugin ships no default key. Bind `scripts/dashboard.sh` however
+you like:
 
 ```tmux
-set -g @tpm-dashboard-key       'M-o'   # default binding
-set -g @tpm-dashboard-no-prefix 'on'    # 'on' = no-prefix, 'off' = prefix+key
+# No-prefix, root table
+bind-key -n M-o run-shell -b "~/.tmux/plugins/tmux-project-manager/scripts/dashboard.sh"
+
+# Under the prefix table
+bind-key o run-shell -b "~/.tmux/plugins/tmux-project-manager/scripts/dashboard.sh"
 ```
 
 Environment overrides (for scripts / tests):

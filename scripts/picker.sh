@@ -3,7 +3,8 @@
 # Copyright (c) 2026 Konstantinos Angelopoulos
 #
 # picker.sh — fzf-based project picker with preview and action keybinds.
-# Invoked by the configured key (default M-p, no prefix).
+# Invoked by whatever key the user binds to scripts/picker.sh (see README →
+# Recommended bindings).
 #
 # Supports two search modes (toggled with ctrl-a inside fzf):
 #   fuzzy  — default fzf fuzzy matching

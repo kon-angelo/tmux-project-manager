@@ -1,7 +1,7 @@
 # Agent Status Integrations
 
 Two thin adapters that publish agent activity into tmux options so the tpm
-project picker (`M-p`) can show which projects are waiting for you, working,
+project picker can show which projects are waiting for you, working,
 done, or errored.
 
 Both are standalone: they don't depend on peon-ping or any other tool.
@@ -141,7 +141,7 @@ across all of them.
 
 ## Resume hooks (`*-tpm-resume.sh`)
 
-Separate from the status adapters. The dashboard (`M-o`, see
+Separate from the status adapters. The dashboard (see
 [../docs/dashboard.md](../docs/dashboard.md)) dispatches Enter on a
 detached row to `integrations/<agent>-tpm-resume.sh`. Each hook decides
 how to route the user for that agent — Claude Code opens a new window per

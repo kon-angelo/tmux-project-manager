@@ -3,7 +3,8 @@
 # Copyright (c) 2026 Konstantinos Angelopoulos
 #
 # dashboard.sh — fzf overview of every Claude + OpenCode session across
-# registered projects. Invoked by @tpm-dashboard-key (default M-o).
+# registered projects. Invoked by whatever key the user binds to
+# scripts/dashboard.sh (see README → Recommended bindings).
 #
 # Row = one agent session. Sources:
 #   Claude live      — ~/.claude/sessions/<PID>.json + `kill -0 <PID>`

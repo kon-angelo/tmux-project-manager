@@ -4,12 +4,12 @@ Manage project sessions in tmux. One session per project, with dedicated windows
 
 ## Features
 
-- **Project picker** (`M-p`): fzf popup with preview pane showing session state, git info, and action keybinds
+- **Project picker**: fzf popup with preview pane showing session state, git info, and action keybinds
 - **Session lifecycle**: launch, repair, and kill project sessions
 - **Current project detection**: highlights your active project via longest-path match
-- **Session cycling** (`prefix {` / `prefix }`): navigate between project sessions (skips ad-hoc sessions)
-- **Window carousel** (`M-g`): cycle within a project session: claude → editor → last shell
-- **Agent dashboard** (`M-o`): fzf overview of every Claude + OpenCode session across projects, live and detached, with real-time status (see [docs/dashboard.md](docs/dashboard.md))
+- **Session cycling**: navigate between project sessions (skips ad-hoc sessions)
+- **Window carousel**: cycle within a project session: claude → editor → last shell
+- **Agent dashboard**: fzf overview of every Claude + OpenCode session across projects, live and detached, with real-time status (see [docs/dashboard.md](docs/dashboard.md))
 - **Filter toggle**: switch between all projects and running-only view
 - **Status bar**: exposes `#{@project-name}` for your tmux status line
 - **Agent status badges**: picker renders a coloured glyph per project when an AI agent inside the session needs attention (see [docs/agent-status.md](docs/agent-status.md) and [integrations/](integrations/))
@@ -66,56 +66,53 @@ set -g @tpm-default-tool "opencode"
 
 # Default editor for window 1 (default: nvim)
 set -g @tpm-default-editor "nvim"
-
-# Keybinds — nothing is bound by default. Opt in per action by setting the
-# key; leave empty (the default) to skip the bind entirely. Each key can be
-# routed through the root table (no-prefix, "on") or the prefix table
-# ("off") via the paired @tpm-*-no-prefix option.
-#
-# Example: everything under Alt (no-prefix) except cycle, which stays on
-# the prefix table because prefix+{ / prefix+} sit next to tmux's other
-# window ops.
-set -g @tpm-picker-key    "M-p"    # project picker
-set -g @tpm-picker-no-prefix "on"
-set -g @tpm-dashboard-key "M-o"    # agent-session dashboard
-set -g @tpm-dashboard-no-prefix "on"
-set -g @tpm-carousel-key  "M-g"    # cycle claude → editor → shell in-session
-set -g @tpm-carousel-no-prefix "on"
-set -g @tpm-prev-key      "{"      # prev project session (needs @tpm-next-key too)
-set -g @tpm-next-key      "}"
-set -g @tpm-cycle-no-prefix "off"  # 'on' to route prev/next through the root table
 ```
 
-Key-choice notes if you're picking your own:
-
-- **Picker / dashboard / carousel**: no-prefix Alt combos work best. Plain
-  letters (Alt+p, Alt+g, Alt+o, Alt+t, Alt+y, …) avoid escape-sequence
-  collisions across Ghostty / iTerm / Alacritty / kitty / Linux terminals.
-- **Cycle (prev/next)**: `prefix { / prefix }` shadows swap-pane -U/-D, but
-  those have `prefix+<>` and no-prefix `M-HJKL` alternatives, so the
-  collision is benign. Bare `M-[ / M-]` intercept CSI/OSC prefixes.
-  `M-{ / M-}` require Shift and behave inconsistently on macOS/Ghostty.
-  `prefix+[ / prefix+]` steal copy-mode and paste-buffer — best avoided.
+The plugin exposes **no key options**. Every action is a script under
+`scripts/`; you bind it with your own `bind-key` line — see
+[Keybinds](#keybinds) below.
 
 ## Keybinds
 
 ### Actions
 
-The plugin ships **no default bindings** — set the corresponding
-`@tpm-*-key` option (see [Tmux Options](#tmux-options)) to opt in.
+The plugin ships no default bindings. Each action is a script; wire it
+into whichever key table (root or prefix) you prefer.
 
-| Action | Option | Script |
-|--------|--------|--------|
-| Project picker | `@tpm-picker-key` | `scripts/picker.sh` |
-| Agent-session dashboard | `@tpm-dashboard-key` | `scripts/dashboard.sh` |
-| Prev / next project session | `@tpm-prev-key` / `@tpm-next-key` | `scripts/cycle.sh` |
-| In-session carousel | `@tpm-carousel-key` | `scripts/carousel.sh` |
+| Action | Script |
+|--------|--------|
+| Project picker | `scripts/picker.sh` |
+| Agent-session dashboard | `scripts/dashboard.sh` |
+| Prev / next project session | `scripts/cycle.sh prev` / `scripts/cycle.sh next` |
+| In-session carousel (claude → editor → shell) | `scripts/carousel.sh` |
 
-You can also call any script directly, e.g. from another plugin:
+### Recommended bindings
+
+Copy-paste starting point. All Alt combos go through the root table
+(no prefix); cycle stays on the prefix table because `prefix { / }` sit
+next to tmux's other window ops.
 
 ```tmux
-bind-key -n M-y run-shell -b "~/.tmux/plugins/tmux-project-manager/scripts/picker.sh"
+# Popups (root table, no prefix)
+bind-key -n M-p run-shell -b "~/.tmux/plugins/tmux-project-manager/scripts/picker.sh"
+bind-key -n M-o run-shell -b "~/.tmux/plugins/tmux-project-manager/scripts/dashboard.sh"
+bind-key -n M-g run-shell -b "~/.tmux/plugins/tmux-project-manager/scripts/carousel.sh"
+
+# Cycle prev/next project session (prefix table)
+bind-key { run-shell -b "~/.tmux/plugins/tmux-project-manager/scripts/cycle.sh prev"
+bind-key } run-shell -b "~/.tmux/plugins/tmux-project-manager/scripts/cycle.sh next"
 ```
+
+Key-choice notes if you're picking something else:
+
+- **Popups**: no-prefix Alt combos work best. Plain letters (Alt+p, Alt+g,
+  Alt+o, Alt+t, Alt+y, …) avoid escape-sequence collisions across
+  Ghostty / iTerm / Alacritty / kitty / Linux terminals.
+- **Cycle (prev/next)**: `prefix { / prefix }` shadows swap-pane -U/-D,
+  but those have `prefix+<>` and no-prefix `M-HJKL` alternatives, so
+  the collision is benign. Bare `M-[ / M-]` intercept CSI/OSC prefixes.
+  `M-{ / M-}` require Shift and behave inconsistently on macOS/Ghostty.
+  `prefix+[ / prefix+]` steal copy-mode and paste-buffer — best avoided.
 
 ### Inside the Picker
 
@@ -143,8 +140,8 @@ Each project session has a fixed structure:
 
 1. **Launch**: Creates a tmux session named after the project's first alias, spawns tool + editor windows, tags the session as managed.
 2. **Repair**: Checks that windows 0 and 1 exist with correct names. Recreates missing ones without touching user-created windows (2+).
-3. **Cycling**: `prefix {` / `prefix }` only cycles through sessions tagged as project-managed, ignoring ad-hoc sessions.
-4. **Carousel**: `M-g` cycles through `claude → editor → last shell` within the current project session. If no shell window exists, one is created at the project's path.
+3. **Cycling**: only cycles through sessions tagged as project-managed, ignoring ad-hoc sessions.
+4. **Carousel**: cycles through `claude → editor → last shell` within the current project session. If no shell window exists, one is created at the project's path.
 5. **Detection**: The picker highlights your current project by matching `$PWD` against project paths (longest prefix wins).
 6. **Persistence**: Compatible with [tmux-resurrect](https://github.com/tmux-plugins/tmux-resurrect). The plugin registers a `@resurrect-hook-post-restore-all` hook that re-applies the project-managed tags to restored sessions whose names match a project alias. If you already have a hook set, ours is appended (not overwritten).
 
