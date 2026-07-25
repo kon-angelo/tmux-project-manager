@@ -612,7 +612,11 @@ list_agent_panes() {
   local sess loc ppid cmd cpath children
   while IFS='|' read -r sess loc ppid cmd cpath; do
     [[ -z "$ppid" ]] && continue
-    children="$(pgrep -P "$ppid" 2>/dev/null | tr '\n' ' ')"
+    # pgrep exits 1 when the pid has no children — normal for idle panes.
+    # Under callers running `set -euo pipefail`, that 1 would propagate via
+    # pipefail and abort the command substitution assignment. Swallow only
+    # pgrep's exit so a real failure in `tr` still surfaces.
+    children="$({ pgrep -P "$ppid" 2>/dev/null || true; } | tr '\n' ' ')"
     printf '%s|%s|%s|%s|%s|%s\n' "$sess" "$loc" "$ppid" "$cmd" "$cpath" "${children% }"
   done < <(tmux list-panes -a -F \
     '#{session_name}|#{window_index}.#{pane_index}|#{pane_pid}|#{pane_current_command}|#{pane_current_path}' \
