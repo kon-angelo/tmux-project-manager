@@ -529,6 +529,36 @@ window_exists() {
     | grep -qx -- "$win_name"
 }
 
+# Extract the binary name from a command string. First token, stripped of any
+# leading path. `opencode --model x` → `opencode`; `/usr/bin/nvim` → `nvim`.
+# Does not attempt to skip env-var prefixes like `FOO=bar cmd` — those are
+# rare enough in this config that they'd warrant an explicit fix, not a
+# heuristic here.
+command_binary() {
+  local cmd="$1" first
+  first="${cmd%% *}"
+  printf '%s\n' "${first##*/}"
+}
+
+# Return 0 if any pane in the named window is currently running $expected_bin
+# (matched against tmux's pane_current_command). Used by repair.sh to catch
+# windows that exist by name but have no live tool process — e.g. after a
+# tmux-resurrect restore, or after the tool crashed with remain-on-exit on.
+#
+# Trailing ".exe" is stripped from pane_current_command before matching. This
+# handles Bun single-file executables (opencode ships as opencode.exe on
+# darwin/linux — the suffix comes from Bun's SEA build, not the platform).
+window_has_process() {
+  local session_name="$1" win_name="$2" expected_bin="$3"
+  [[ -z "$expected_bin" ]] && return 0
+  local cmd
+  while IFS= read -r cmd; do
+    [[ -z "$cmd" ]] && continue
+    [[ "${cmd%.exe}" == "$expected_bin" ]] && return 0
+  done < <(tmux list-panes -t "=$session_name:$win_name" -F '#{pane_current_command}' 2>/dev/null)
+  return 1
+}
+
 # --- LRU tracking ---
 # Stores epoch timestamps per project key in a simple key=timestamp file.
 # Used by the picker to sort by most-recently-used when LRU mode is active.

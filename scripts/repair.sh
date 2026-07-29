@@ -52,15 +52,26 @@ fi
 repaired=0
 
 # Tool window (always required).
+tool_bin=$(command_binary "$tool_cmd")
 if ! window_exists "$session_name" "$TPM_WINDOW_TOOL"; then
   tmux new-window -t "=$session_name" -n "$TPM_WINDOW_TOOL" -c "$project_path" "$tool_cmd"
+  repaired=$((repaired + 1))
+elif ! window_has_process "$session_name" "$TPM_WINDOW_TOOL" "$tool_bin"; then
+  # Window exists (e.g. restored by tmux-resurrect) but the tool isn't
+  # running. Respawn the whole window so we end up in the same state as a
+  # fresh new-window. -k kills any lingering panes in that window.
+  tmux respawn-window -k -t "=$session_name:$TPM_WINDOW_TOOL" -c "$project_path" "$tool_cmd"
   repaired=$((repaired + 1))
 fi
 
 # Editor window (only if enabled for this project).
 if has_editor "$project_key"; then
+  editor_bin=$(command_binary "$editor_cmd")
   if ! window_exists "$session_name" "$TPM_WINDOW_EDITOR"; then
     tmux new-window -t "=$session_name" -n "$TPM_WINDOW_EDITOR" -c "$project_path" "$editor_cmd"
+    repaired=$((repaired + 1))
+  elif ! window_has_process "$session_name" "$TPM_WINDOW_EDITOR" "$editor_bin"; then
+    tmux respawn-window -k -t "=$session_name:$TPM_WINDOW_EDITOR" -c "$project_path" "$editor_cmd"
     repaired=$((repaired + 1))
   fi
 fi
