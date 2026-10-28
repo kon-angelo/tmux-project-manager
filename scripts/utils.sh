@@ -611,6 +611,7 @@ tpm_now_ms() {
 # Human-readable age from an epoch-ms timestamp: "3s", "12m", "2h", "1d".
 tpm_ms_since() {
   local ms="${1:-0}" now diff
+  [[ "$ms" =~ ^[0-9]+$ ]] || ms=0
   now=$(($(date +%s) * 1000))
   diff=$(( (now - ms) / 1000 ))
   (( diff < 0 )) && diff=0

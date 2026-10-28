@@ -248,7 +248,7 @@ collect_opencode() {
 
   local sid sdir stitle supdated project_key
   local tmux_state tmux_sess state flag loc pid_out
-  while IFS='|' read -r sid sdir stitle supdated; do
+  while IFS=$'\x1f' read -r sid sdir stitle supdated; do
     [[ -z "$sid" ]] && continue
     project_key=$(detect_current_project "$sdir")
     [[ -z "$project_key" ]] && continue
@@ -286,7 +286,7 @@ collect_opencode() {
     emit_row \
       "$state" "opencode" "$sid" "$project_key" "$sdir" "$(sanitize "$stitle")" \
       "${tmux_sess:--}" "$loc" "$supdated" "$pid_out" "$flag"
-  done < <(sqlite3 -readonly "file:$TPM_OPENCODE_DB?mode=ro" "$sql" 2>/dev/null || true)
+  done < <(sqlite3 -readonly -separator $'\x1f' "file:$TPM_OPENCODE_DB?mode=ro" "$sql" 2>/dev/null || true)
 }
 
 # ─── Phase 3 ── sort + render ───────────────────────────────────────────────
